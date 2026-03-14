@@ -1,3 +1,4 @@
+# NDC File (MF2NDC). Field order and codes: med-file-manual.md § NDC File (H001–H121).
 source_table: rxraw.raw_mf2ndc
 target_table: medfile.refinement_ndc
 source_file: MF2NDC

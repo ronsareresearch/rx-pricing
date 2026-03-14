@@ -1,6 +1,6 @@
 # Transformation specs: casting and translation
 
-**Role:** Rules for data casting (dates, implied decimals) and MF2VAL join pattern. Used by refinement load logic (Phase 3+). See [med-file-manual.md](med-file-manual.md) and MF2DICT (C044, C045) for field-level definitions.
+**Role:** Rules for data casting (dates, implied decimals) and MF2VAL join pattern. Used by refinement load logic (Phase 2+: mf2val, ndc, ndc_price, drg). See [med-file-manual.md](med-file-manual.md) and MF2DICT (C044, C045) for field-level definitions.
 
 ---
 
@@ -16,10 +16,11 @@
 
 - **Source:** MF2DICT: **Implied Decimal Flag** (C044) = 'Y' and **Decimal Places** (C045) = N; or manual Picture (e.g. 9(5)V9(6) = 5 integer + 6 decimal places). Raw value is an integer string; true value = raw / 10^N.
 - **Rule:** If C044 = 'Y' or Picture contains V, divide the parsed integer by `10 ** decimal_places` before writing to a `DECIMAL` column. If C044 = 'N', use the value as-is.
-- **MF2PRC (NDC Price File)** — manual § NDC Price File uses **M**-codes (not L). Implied decimal from Picture:
+- **MF2PRC (NDC Price File)** — [med-file-manual.md](med-file-manual.md) § NDC Price File uses **M**-codes (not L-codes; L-codes are GPPC Price File MF2GPR). Implied decimal from Picture:
   - **M021 Unit Price:** 9(5)V9(6) → divide by 10^6 → `unit_price DECIMAL(11,6)`.
   - **M032 Unit Price - Extended:** 9(8)V9(5) → divide by 10^5 → `unit_price_extended DECIMAL(13,5)`.
   - **M045 Package Price:** 9(8)V9(2) → divide by 10^2 → `package_price DECIMAL(10,2)`.
+- **Price Code (M012)** valid values per manual: **A** = AWP, **D** = DP, **H** = HCFA FFP (CMS FUL), **U** = HCFA FFP unit dose, **W** = WAC.
 
 ---
 
@@ -35,12 +36,16 @@
     ON v.field_id = 'H074' AND v.field_value = r.item_status_flag AND v.language_cd = '01'
   ```
 
-- **Common field_id examples:** F037 (Route), F039 (Dose Form), H022 (RX-OTC), H074 (Item Status), L009 (GPPC Price Code). Use MF2VAL or the manual to map refinement columns to `field_id`.
+- **Common field_id examples:** F037 (Route), F039 (Dose Form), H022 (RX-OTC), H074 (Item Status), L009 (GPPC Price Code). For NDC Price File use **M012** (Price Code), **M055** (AWP Indicator Code). Use MF2VAL or [med-file-manual.md](med-file-manual.md) to map refinement columns to `field_id`.
 - **Language:** Default `language_cd = '01'` (English). Use the same in joins unless multi-language is required.
 
 ---
 
-## 4. Reference
+## 4. Refine rules and manual alignment
+
+Refine rule YAMLs (`refine/rules/*.yaml`) define column position → name and cast per entity. Each file’s header comments cite the manual section and data element code range (e.g. NDC H001–H121, MF2PRC M001–M057, MF2DRG T001–T115, MF2VAL D001–D062). Keep rules in sync with [med-file-manual.md](med-file-manual.md) when adding or changing fields.
+
+## 5. Reference
 
 | Topic | Document / source |
 |-------|-------------------|
@@ -48,3 +53,4 @@
 | Schema vs manual (100% mapping) | [schema-validation.md](schema-validation.md) |
 | Implied decimal, length, type | MF2DICT (C044, C045, C041, C040) |
 | Code → description | MF2VAL; join on field_id + field_value + language_cd |
+| NDC hyphen display | Manual § ID Number Format Code (H054); `refine/rules/common.yaml` ndc_hyphenate |

@@ -1,8 +1,12 @@
-"""MF2SUM sequence check: for incrementals (U), volume must equal last_refined_volume + 1."""
+"""MF2SUM sequence check for incrementals (U). Allows normal (last+1), gap (skip missing), and backfill."""
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class SequenceBreakError(Exception):
-    """Raised when an incremental run has volume != last_volume + 1."""
+    """Raised when validation fails (e.g. U with no prior run, or non-numeric volume)."""
 
     pass
 
@@ -24,10 +28,10 @@ def get_last_refined_volume(conn) -> str | None:
 
 def validate_run(file_type: str, volume_number: str, last_refined_volume: str | None) -> None:
     """
-    Validate that this run is in sequence.
-    - Full (T): always allowed.
-    - Incremental (U): volume_number must equal last_refined_volume + 1 (or first run).
-    Raises SequenceBreakError if invalid.
+    Validate this run. Full (T): always allowed.
+    Incremental (U): allowed if (1) normal: volume == last+1, (2) gap: volume > last+1 (missing
+    volumes skipped), or (3) backfill: volume <= last (e.g. run 144 loaded later after 145 done).
+    Logs gap/backfill; raises SequenceBreakError only for invalid cases (no prior run, non-numeric).
     """
     if file_type == "T":
         return
@@ -35,17 +39,30 @@ def validate_run(file_type: str, volume_number: str, last_refined_volume: str | 
         raise SequenceBreakError(f"Invalid file_type: {file_type!r}. Expected T or U.")
     vol = (volume_number or "").strip()
     if last_refined_volume is None:
-        # First run must be full (T). If we get U with no previous run, that's a sequence break.
         raise SequenceBreakError(
             "Incremental run (U) has no prior refined run. Refine a full load (T) first."
         )
     try:
         last_num = int(last_refined_volume)
-        expected = str(last_num + 1)
+        vol_num = int(vol)
     except ValueError:
-        expected = None
-    if expected is not None and vol != expected:
         raise SequenceBreakError(
-            f"Sequence break: expected volume {expected} (last was {last_refined_volume}), got {vol!r}. "
-            "See operations.md §2."
+            f"Volume numbers must be numeric. last_refined={last_refined_volume!r}, current={vol!r}."
         )
+    if vol_num == last_num + 1:
+        return
+    if vol_num > last_num + 1:
+        logger.warning(
+            "Gap: volume(s) %s..%s missing; refining volume %s (last was %s).",
+            last_num + 1,
+            vol_num - 1,
+            vol,
+            last_refined_volume,
+        )
+        return
+    # Backfill: vol_num <= last_num (e.g. refining 144 after 145 already done)
+    logger.info(
+        "Backfill: refining volume %s (last refined %s).",
+        vol,
+        last_refined_volume,
+    )

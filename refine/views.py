@@ -1,4 +1,7 @@
-"""Generate CREATE OR REPLACE VIEW SQL from YAML lookups and derived. Execute against medfile schema."""
+"""Generate CREATE OR REPLACE VIEW SQL from YAML lookups and derived. Execute against medfile schema.
+
+Not invoked by the refine pipeline. Use in separate view processing once end-product view
+requirements are defined (see create_views)."""
 
 from refine.rule_engine import load_common_rules, load_rules
 from refine.schema import SCHEMA_NAME
@@ -18,14 +21,9 @@ def _view_entity_name(entity: str) -> str:
 
 
 def _base_table_for_entity(entity: str) -> str:
-    """Entity to refinement table name."""
-    if entity == "ndc":
-        return f"{SCHEMA_NAME}.refinement_ndc"
-    if entity == "ndc_price":
-        return f"{SCHEMA_NAME}.refinement_ndc_price"
-    if entity == "drg":
-        return f"{SCHEMA_NAME}.refinement_drg"
-    return f"{SCHEMA_NAME}.refinement_{entity}"
+    """Entity to base table (from rules target_table)."""
+    rules = load_rules(entity)
+    return rules["target_table"]
 
 
 def _ndc_formatted_sql() -> str:

@@ -1,0 +1,41 @@
+# TC-GPI Name File (MF2TCGPI). Manual § TC-GPI Name File (G001–G089). Business key: tc_gpi_key + record_type_code.
+source_table: rxraw.raw_mf2tcgpi
+target_table: medfile.refinement_tcgpi
+source_file: MF2TCGPI
+
+business_key: [tc_gpi_key, record_type_code]
+history_type: scd2
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: tc_gpi_key
+    type: varchar(14)
+    cast: str
+  - pos: 2
+    name: record_type_code
+    type: char(1)
+    cast: str
+  - pos: 3
+    name: tc_gpi_name
+    type: varchar(60)
+    cast: str
+  - pos: 4
+    name: tc_level_code
+    type: char(2)
+    cast: str
+  - pos: 5
+    name: reserve
+    type: varchar(10)
+    cast: str
+  - pos: 6
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 7
+    name: last_change_date
+    type: date
+    cast: date_yyyymmdd
+
+lookups: []
+derived: []

@@ -1,0 +1,41 @@
+# Reference Name File (MF2RNM). Manual § (4001–4030). Links concept to generic-named concept.
+source_table: rxraw.raw_mf2rnm
+target_table: medfile.refinement_rnm
+source_file: MF2RNM
+
+business_key: [concept_type, country_code, concept_id]
+history_type: scd2
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: concept_type
+    type: integer
+    cast: int
+  - pos: 2
+    name: country_code
+    type: char(2)
+    cast: str
+  - pos: 3
+    name: concept_id
+    type: bigint
+    cast: bigint
+  - pos: 4
+    name: id_for_generic_named_drug
+    type: bigint
+    cast: bigint
+  - pos: 5
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 6
+    name: medi_span_reference_flag
+    type: char(1)
+    cast: str
+  - pos: 7
+    name: reserve
+    type: varchar(19)
+    cast: str
+
+lookups: []
+derived: []

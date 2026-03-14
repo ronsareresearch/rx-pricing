@@ -1,0 +1,54 @@
+# GPPC File (MF2GPPC). Manual § GPPC File (J001–J057). NDC references gppc_code.
+source_table: rxraw.raw_mf2gppc
+target_table: medfile.refinement_gppc
+source_file: MF2GPPC
+
+business_key: [gppc_code]
+history_type: scd2
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: gppc_code
+    type: varchar(8)
+    cast: str
+  - pos: 2
+    name: package_size
+    type: decimal(9,3)
+    cast: implied_decimal
+    decimal_places: 3
+  - pos: 3
+    name: package_size_uom
+    type: char(2)
+    cast: str
+  - pos: 4
+    name: package_quantity
+    type: integer
+    cast: int
+  - pos: 5
+    name: unit_dose_unit_of_use_code
+    type: char(1)
+    cast: str
+  - pos: 6
+    name: package_description_code
+    type: char(2)
+    cast: str
+  - pos: 7
+    name: generic_product_identifier
+    type: varchar(14)
+    cast: str
+  - pos: 8
+    name: reserve
+    type: varchar(14)
+    cast: str
+  - pos: 9
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 10
+    name: last_change_date
+    type: date
+    cast: date_yyyymmdd
+
+lookups: []
+derived: []

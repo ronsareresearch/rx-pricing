@@ -1,0 +1,37 @@
+# Secondary Alternate ID File (MF2SEC). Manual § (3001–3044).
+source_table: rxraw.raw_mf2sec
+target_table: medfile.refinement_sec
+source_file: MF2SEC
+
+business_key: [external_drug_id, alternate_drug_id]
+history_type: scd2
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: external_drug_id
+    type: varchar(20)
+    cast: str
+  - pos: 2
+    name: external_drug_id_format_code
+    type: char(1)
+    cast: str
+  - pos: 3
+    name: alternate_drug_id
+    type: varchar(20)
+    cast: str
+  - pos: 4
+    name: alternate_drug_id_format_code
+    type: char(1)
+    cast: str
+  - pos: 5
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 6
+    name: reserve
+    type: varchar(21)
+    cast: str
+
+lookups: []
+derived: []

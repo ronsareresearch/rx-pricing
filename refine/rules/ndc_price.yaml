@@ -1,3 +1,5 @@
+# NDC Price File (MF2PRC). Field order and codes: med-file-manual.md § NDC Price File (M001–M057).
+# Price Code (pos2) valid values: A=AWP, D=DP, H=HCFA FFP, U=HCFA FFP unit dose, W=WAC.
 source_table: rxraw.raw_mf2prc
 target_table: medfile.refinement_ndc_price
 source_file: MF2PRC

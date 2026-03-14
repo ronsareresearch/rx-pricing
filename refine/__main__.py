@@ -1,7 +1,8 @@
 """
-Refine ETL: refine raw runs into medfile schema and create views.
+Refine ETL: refine raw runs into medfile schema (tables only). Views are separate.
 Run: uv run python -m refine
 Reset (drop medfile and re-refine all): uv run python -m refine --reset
+Clean failed runs before re-run: uv run python -m refine --clean-failed
 """
 
 import logging
@@ -11,7 +12,7 @@ import time
 import psycopg2
 
 from refine.config import get_database_url
-from refine.runner import run_refinement
+from refine.runner import delete_failed_run_data, run_refinement
 
 
 def configure_logging() -> None:
@@ -24,8 +25,9 @@ def configure_logging() -> None:
 
 def main() -> int:
     import argparse
-    parser = argparse.ArgumentParser(description="Refine ETL: rxraw -> medfile + views")
+    parser = argparse.ArgumentParser(description="Refine ETL: rxraw -> medfile tables (views are separate)")
     parser.add_argument("--reset", action="store_true", help="Drop medfile schema and re-refine all runs")
+    parser.add_argument("--clean-failed", action="store_true", help="Delete refinement data for failed runs (then re-run refine)")
     args = parser.parse_args()
 
     configure_logging()
@@ -43,6 +45,10 @@ def main() -> int:
         return 1
 
     try:
+        if args.clean_failed:
+            n = delete_failed_run_data(conn)
+            log.info("Cleaned %s failed run(s). Re-run without --clean-failed to refine.", n)
+            return 0
         start = time.monotonic()
         runs_done, total_rows = run_refinement(conn, reset=args.reset)
         elapsed = time.monotonic() - start

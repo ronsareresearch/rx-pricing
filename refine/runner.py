@@ -1,13 +1,14 @@
-"""Orchestrate refinement: find unrefined runs, validate, refine each entity, create views."""
+"""Orchestrate refinement: find unrefined runs, validate, refine each entity in load order. Views are separate (see refine.views)."""
 
 import logging
 import uuid
 from pathlib import Path
 
 from refine.config import get_database_url
+from refine.load_order import get_load_order
 from refine.refiner import refine_append, refine_replace, refine_scd2
+from refine.rule_engine import load_rules
 from refine.validate import SequenceBreakError, get_last_refined_volume, validate_run
-from refine.views import create_views
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,6 @@ def _file_type_map() -> dict[tuple[str, str], str]:
         return {}
     out = {}
     for r in runs:
-        # file_date from RunInfo is YYYYMMDD
         if len(r.file_date) == 8:
             iso = f"{r.file_date[:4]}-{r.file_date[4:6]}-{r.file_date[6:8]}"
             out[(iso, (r.volume_number or "").strip())] = r.file_type
@@ -59,10 +59,67 @@ def get_unrefined_runs(conn) -> list[dict]:
         return [dict(zip(columns, row)) for row in cur.fetchall()]
 
 
+def delete_failed_run_data(conn) -> int:
+    """
+    Delete refinement data for any run with status='failed'. Use before re-running refine
+    so the same file is not applied twice (which would duplicate SCD2/append rows).
+    Returns number of failed run_ids cleaned.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT run_id FROM medfile.refine_runs WHERE status = 'failed'",
+        )
+        failed_run_ids = [row[0] for row in cur.fetchall()]
+    if not failed_run_ids:
+        return 0
+
+    tables = []
+    for entity in get_load_order():
+        try:
+            rules = load_rules(entity)
+            tables.append(rules["target_table"])
+        except FileNotFoundError:
+            continue
+
+    with conn.cursor() as cur:
+        for run_id in failed_run_ids:
+            for table in tables:
+                cur.execute(f"DELETE FROM {table} WHERE run_id = %s", (str(run_id),))
+    conn.commit()
+    logger.info("Deleted data for %s failed run(s): %s", len(failed_run_ids), [str(r)[:8] for r in failed_run_ids])
+    return len(failed_run_ids)
+
+
+def _preload_rules(load_order: list[str]) -> dict[str, dict]:
+    """Load rules for all entities once per run (cache). Skips entities with no rules file."""
+    rules_by_entity: dict[str, dict] = {}
+    for entity in load_order:
+        try:
+            rules_by_entity[entity] = load_rules(entity)
+        except FileNotFoundError:
+            pass
+    return rules_by_entity
+
+
+def _refine_entity(
+    conn, file_id, file_type, issue_date, run_id, entity: str, rules_by_entity: dict[str, dict]
+) -> int:
+    """Dispatch to replace / scd2 / append based on entity rules. Returns rows written."""
+    rules = rules_by_entity.get(entity)
+    if rules is None:
+        raise FileNotFoundError(f"No rules for entity {entity}")
+    history_type = (rules.get("history_type") or "scd2").strip().lower()
+    if history_type == "replace":
+        return refine_replace(conn, file_id, file_type, run_id, entity, rules=rules)
+    if history_type == "append_only":
+        return refine_append(conn, file_id, file_type, issue_date, run_id, entity, rules=rules)
+    return refine_scd2(conn, file_id, file_type, issue_date, run_id, entity, rules=rules)
+
+
 def run_refinement(conn, reset: bool = False) -> tuple[int, int]:
     """
     Refine all unrefined runs. If reset=True, drop medfile schema first (caller must re-create).
-    Returns (runs_processed, total_rows_refined).
+    Processes entities in dependency order (load_order). Returns (runs_processed, total_rows_refined).
     """
     if reset:
         from refine.schema import drop_schema_ddl
@@ -83,6 +140,8 @@ def run_refinement(conn, reset: bool = False) -> tuple[int, int]:
         return 0, 0
 
     file_type_map = _file_type_map()
+    load_order = get_load_order()
+    rules_by_entity = _preload_rules(load_order)
     runs_done = 0
     total_rows = 0
 
@@ -113,11 +172,14 @@ def run_refinement(conn, reset: bool = False) -> tuple[int, int]:
         conn.commit()
 
         try:
-            total_rows += refine_replace(conn, file_id, file_type, run_id, "mf2val")
-            total_rows += refine_scd2(conn, file_id, file_type, file_date, run_id, "ndc")
-            total_rows += refine_append(conn, file_id, file_type, file_date, run_id, "ndc_price")
-            total_rows += refine_scd2(conn, file_id, file_type, file_date, run_id, "drg")
-            create_views(conn)
+            for entity in load_order:
+                try:
+                    total_rows += _refine_entity(
+                        conn, file_id, file_type, file_date, run_id, entity, rules_by_entity
+                    )
+                except FileNotFoundError:
+                    logger.debug("No rules for entity %s, skip", entity)
+                    continue
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE medfile.refine_runs SET status = 'done', completed_at = now() WHERE run_id = %s",
@@ -126,8 +188,19 @@ def run_refinement(conn, reset: bool = False) -> tuple[int, int]:
             conn.commit()
             runs_done += 1
             logger.info("Refined run file_id=%s volume=%s", str(file_id)[:8], volume_number)
+        except KeyboardInterrupt:
+            logger.warning("Refinement interrupted (Ctrl+C) for run %s", file_id)
+            conn.rollback()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE medfile.refine_runs SET status = 'failed' WHERE run_id = %s",
+                    (str(run_id),),
+                )
+            conn.commit()
+            raise
         except Exception as e:
             logger.exception("Refinement failed for run %s: %s", file_id, e)
+            conn.rollback()
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE medfile.refine_runs SET status = 'failed' WHERE run_id = %s",

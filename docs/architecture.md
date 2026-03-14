@@ -39,7 +39,7 @@
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  RAW LAYER (Landing / Intake) — implemented as rxraw                     │
 │  • On disk: files in data/ (or DATA_DIR); one run per dir with MF2SUM   │
-│  • In DB: rxraw.raw_* (27 tables: MF2DICT + 26 data/summary files)       │
+│  • In DB: rxraw.raw_* (28 tables: raw_mf2dict + 27 from RAW_SOURCE_FILES)│
 │  • One row per source line; file_id (UUID), file_date, source_file,     │
 │    line_number, volume_number, supplement_number, pos1..pos80 (TEXT)    │
 │  • Run tracking: rxraw.loaded_runs (file_id, file_date, volume, etc.)   │
@@ -49,7 +49,7 @@
 
 - **Raw (disk):** Source files under `data/` (or `DATA_DIR`); each directory containing MF2SUM is one run. Preserved for audit, replay, and debugging.
 - **Raw (DB) — implemented:** The **rxraw** pipeline loads into schema `rxraw`: tables `rxraw.raw_*` with `file_id`, `file_date`, `source_file`, `line_number`, `volume_number`, `supplement_number`, and `pos1`..`pos80`. Run metadata in `rxraw.loaded_runs`. See [rxraw-pipeline.md](rxraw-pipeline.md) and [schema-validation.md](schema-validation.md) § Raw layer.
-- **Refinement (planned):** Single source of truth for refined state in a separate schema (e.g. `medfile`). All history preserved via SCD2, effective-date pricing, and soft deletes. MF2VAL and MF2DICT used for validation and translation.
+- **Refinement (Phase 2+3 implemented):** Schema `medfile`: translation table `mf2val` (MF2VAL) and **25 refinement tables** for all data files except MF2ERR (Phase 4). Load order and dependencies in `refine/load_order.py`; SCD2 / append-only history. See [schema-validation.md](schema-validation.md) §0.
 - **Views (planned):** Built from refinement for production reporting; optional views from raw for validation or one-off analysis.
 
 ### 2.2 Load and Transaction Semantics
@@ -72,7 +72,7 @@ Every pipeline execution is one **run** (one Volume + Supplement per delivery). 
 |-------|------------------------------------------------|
 | **Run metadata (current)** | **`rxraw.loaded_runs`**: `file_id` (UUID, PK), `file_date` (DATE from MF2SUM), `volume_number`, `supplement_number`, `loaded_at`. One row per run; duplicate (file_date, volume) skipped on load. |
 | **Raw (DB) — current** | **Implemented.** All in-scope files load into **`rxraw.raw_*`**. Each row has **`file_id`**, **`file_date`**, **`source_file`**, **`line_number`**, **`volume_number`**, **`supplement_number`**, and **`pos1`..`pos80`** (TEXT). Indexes on `(file_id)` and `(file_date, source_file)`. Query by file_date, volume_number, or source_file for history and maintenance. |
-| **Refinement (planned)** | Run metadata in **`etl_run`** / **`etl_run_files`**; refined rows with **`run_id`**, **`issue_date`**, **`source_file`** for traceability. |
+| **Refinement (Phase 2)** | Run metadata in **`medfile.refine_runs`**; refined rows in **`mf2val`**, **`refinement_ndc`**, **`refinement_ndc_price`**, **`refinement_drg`** with **`run_id`**, **`file_date`**, **`source_file`** for traceability. |
 
 **Current implementation (rxraw)**
 

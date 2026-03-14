@@ -1,0 +1,55 @@
+# Ingredient ID to Drug-Strength File (MF2STR). Manual § (1001–1083). Strength/Volume implied decimal 5 places.
+source_table: rxraw.raw_mf2str
+target_table: medfile.refinement_str
+source_file: MF2STR
+
+business_key: [ingredient_id]
+history_type: scd2
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: ingredient_id
+    type: bigint
+    cast: bigint
+  - pos: 2
+    name: reserve_1
+    type: char(2)
+    cast: str
+  - pos: 3
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 4
+    name: ingredient_drug_id
+    type: bigint
+    cast: bigint
+  - pos: 5
+    name: ingredient_strength_value
+    type: decimal(13,5)
+    cast: implied_decimal
+    decimal_places: 5
+  - pos: 6
+    name: ingredient_strength_uom_combined
+    type: varchar(11)
+    cast: str
+  - pos: 7
+    name: ingredient_strength_uom_individual
+    type: varchar(11)
+    cast: str
+  - pos: 8
+    name: volume_value
+    type: decimal(13,5)
+    cast: implied_decimal
+    decimal_places: 5
+  - pos: 9
+    name: volume_uom
+    type: varchar(11)
+    cast: str
+  - pos: 10
+    name: reserve_2
+    type: varchar(30)
+    cast: str
+
+lookups: []
+derived: []

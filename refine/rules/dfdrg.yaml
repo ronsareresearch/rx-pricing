@@ -1,0 +1,53 @@
+# Drug-Dose Form File (MF2DFDRG). Manual § Drug-Dose Form File (R001–R053). Concept Type 00221 only.
+source_table: rxraw.raw_mf2dfdrg
+target_table: medfile.refinement_dfdrg
+source_file: MF2DFDRG
+
+business_key: [concept_type, country_code, concept_id]
+history_type: scd2
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: concept_type
+    type: integer
+    cast: int
+  - pos: 2
+    name: country_code
+    type: char(2)
+    cast: str
+  - pos: 3
+    name: concept_id
+    type: bigint
+    cast: bigint
+  - pos: 4
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 5
+    name: drug_name_id
+    type: bigint
+    cast: bigint
+  - pos: 6
+    name: dose_form_id
+    type: integer
+    cast: int
+  - pos: 7
+    name: status
+    type: integer
+    cast: int
+  - pos: 8
+    name: link_value
+    type: bigint
+    cast: bigint
+  - pos: 9
+    name: link_date
+    type: date
+    cast: date_yyyymmdd
+  - pos: 10
+    name: reserve
+    type: varchar(28)
+    cast: str
+
+lookups: []
+derived: []

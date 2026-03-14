@@ -70,7 +70,7 @@ Date the manufacturer associates with price data. In MF2PRC (NDC Price) and MF2G
 Immutable landing zone for vendor files. One directory/partition per delivery (e.g. by volume or YYYYMM). No transformation; checksum and validation (e.g. MF2SUM) only.
 
 **Refinement layer**  
-Normalized, historical store: SCD2 dimensions, effective-date price history, identifier lineage, soft deletes. Built from raw using Transaction CD and vendor rules; never overwrites or drops history.
+Normalized, historical store: SCD2 dimensions, effective-date price history, identifier lineage, soft deletes. Built from raw using Transaction CD and vendor rules; never overwrites or drops history. **Phase 2+3 (current):** schema `medfile` with `mf2val` and 25 refinement tables (all data files except MF2ERR); load order in `refine/load_order.py`. See [schema-validation.md](schema-validation.md) §0.
 
 **Route**  
 Route of administration (e.g. Oral, Topical). Route File (MF2RTE); descriptions in Description File (MF2DESC). MF2VAL translates route codes (e.g. "PO" → "Oral").

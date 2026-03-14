@@ -6,10 +6,11 @@
 
 ## 0. Configuration (required for all runs)
 
-- **`EXTERNAL_DATABASE_URL`** — PostgreSQL connection string for refinement and views (e.g. `postgresql://user:password@host:5432/database`). Set in environment or `.env` in project root; **do not commit** (`.env` is in `.gitignore`). See [README](../README.md#configuration-and-running-the-pipeline).
+- **`EXTERNAL_DATABASE_URL`** — PostgreSQL connection string for raw load and refinement (e.g. `postgresql://user:password@host:5432/database`). Set in environment or `.env` in project root; **do not commit** (`.env` is in `.gitignore`). See [rxraw-pipeline.md](rxraw-pipeline.md) and [architecture.md](architecture.md).
 - **`DATA_DIR`** (optional) — Path to MED-File v2 files for this run; default is project `data/`. Pipeline looks for MF2SUM under this path (including one or two levels of subdirectories).
+- **`REFINE_INSERT_PAGE_SIZE`** (optional) — Batch size for refinement INSERT/UPDATE (default 5000, range 500–50_000). Tune for throughput; see [refine-load-optimization-options.md](refine-load-optimization-options.md).
 
-**Empty or delimiter-only incrementals:** Some incremental files may be empty or contain only delimiter (e.g. pipe) lines. The pipeline treats such lines as no record: MF2SUM/MF2DICT parsers skip them; data files (Phase 3+) yield 0 records and do not fail the run. See `etl/parse_utils.py`.
+**Empty or delimiter-only incrementals:** Some incremental files may be empty or contain only delimiter (e.g. pipe) lines. The pipeline treats such lines as no record: MF2SUM/MF2DICT parsers skip them; data files (Phase 3+) yield 0 records and do not fail the run. See `rxraw/parse_utils.py`.
 
 ---
 
@@ -27,16 +28,13 @@
 
 **Symptom:** Pipeline rejects run during MF2SUM validation.
 
-**Causes:** Wrong Product File Type (e.g. expected U, got T); Volume Number not last+1; Supplement out of order; missing or malformed Summary file.
+**Causes:** Wrong Product File Type (e.g. expected U, got T); Supplement out of order; missing or malformed Summary file. (Refine allows volume gaps and backfill; see item 3.)
 
 **Actions:**
 
 1. **Do not load any data files** into refinement until MF2SUM is valid.
 2. Capture MF2SUM contents (File Type, Volume, Supplement, TOC) and error message.
-3. **Sequence break (Volume ≠ last + 1):**
-   - Confirm with vendor whether a delivery was missed or numbering is supplemental.
-   - If a delivery was missed: obtain missing delivery(s) or get vendor confirmation to skip; update “last processed” only per vendor guidance. Do not load out of order.
-   - If supplemental: verify Supplement semantics in manual and implement sequence rule if not already supported.
+3. **Volume sequence (refine):** Refine allows normal (volume = last+1), **gap** (volume > last+1; missing volumes skipped), and **backfill** (volume ≤ last). If a delivery (e.g. 144) is missing, refine continues; load 144 into raw later and run refine again to backfill.
 4. **Wrong File Type:** Confirm you requested an Incremental but received a Total (or vice versa). Resolve with vendor; do not force-load.
 5. Log incident and resolution; update runbooks if a new failure mode is identified.
 
@@ -66,7 +64,7 @@
 
 1. **Validate MF2SUM:** Product File Type = "U"; Volume Number = last_volume + 1 (or valid Supplement per manual). Reject and follow Runbook: Control Validation Failure if not.
 2. **Ingest to raw:** All delivered files (including MF2ERR if present) into raw partition for this run (e.g. `raw/medfile_v2/YYYYMM/vol_N/`).
-3. **Refinement:** Process in dependency order. Apply Transaction CD: A → insert, C → append history, D → end-date/flag; never delete from history. Process MF2ERR after affected entities; apply corrections to refinement.
+3. **Refinement:** Process in **dependency order** (see `refine/load_order.py`). Refine pipeline runs all 25 entities in that order (mf2val → lab → rte → … → rnm). Apply Transaction CD: A → insert, C → append history, D → end-date/flag; never delete from history. MF2ERR (Phase 4) is processed after affected entities; apply corrections to refinement.
 4. **Views:** Refresh materialized views or recompute dependent views.
 5. **Record state:** Persist “last Volume = N” and “last run = Incremental.”
 6. **Log and metrics:** Record counts (rows per file, rows added/updated in refinement), duration, status.
@@ -75,15 +73,21 @@
 
 ## 5. Runbook: Pipeline Failure After Raw Write
 
-**Symptom:** Raw write succeeded; refinement or views failed (e.g. DB error, timeout).
+**Symptom:** Raw write succeeded; refinement or views failed (e.g. DB error, timeout, Ctrl+C).
 
 **Actions:**
 
 1. **Do not re-ingest** the same delivery into raw as a new run (raw is immutable for that Volume).
 2. Fix root cause (e.g. schema, connectivity, resource limit).
-3. **Re-run from refinement:** Re-read from the same raw partition for this Volume; run refinement (idempotent for this run_id) and then views.
-4. If refinement is not idempotent for the run: isolate refinement changes for this run (e.g. by run_id), roll back those only, then re-run refinement + views.
-5. Document cause and resolution; add alert or guard if this failure mode is recurring.
+3. **Clean failed-run data before re-running:** Each refine step commits after itself, so a run that failed or was interrupted partway has already written data for completed entities (e.g. mf2val through gppc). Re-running refine would process the same file again and duplicate SCD2/append rows. Delete data for failed runs first:
+   ```bash
+   uv run python -m refine --clean-failed
+   ```
+   then run refinement again:
+   ```bash
+   uv run python -m refine
+   ```
+4. Document cause and resolution; add alert or guard if this failure mode is recurring.
 
 ---
 

@@ -1,0 +1,42 @@
+# GPPC Price File (MF2GPR). Manual § GPPC Price File (L001–L057). Append-only like NDC Price.
+source_table: rxraw.raw_mf2gpr
+target_table: medfile.refinement_gpr
+source_file: MF2GPR
+
+business_key: [gppc_code, gppc_price_code, effective_date]
+history_type: append_only
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: gppc_code
+    type: varchar(8)
+    cast: str
+  - pos: 2
+    name: gppc_price_code
+    type: char(1)
+    cast: str
+  - pos: 3
+    name: effective_date
+    type: date
+    cast: date_yyyymmdd
+  - pos: 4
+    name: unit_price
+    type: decimal(11,6)
+    cast: implied_decimal
+    decimal_places: 6
+  - pos: 5
+    name: reserve
+    type: varchar(27)
+    cast: str
+  - pos: 6
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 7
+    name: last_change_date
+    type: date
+    cast: date_yyyymmdd
+
+lookups: []
+derived: []

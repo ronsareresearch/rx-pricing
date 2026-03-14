@@ -1,0 +1,125 @@
+# Drug Name File (MF2NAME). Manual § Drug Name File (F001–F121). Business key: drug_descriptor_id (DDID).
+source_table: rxraw.raw_mf2name
+target_table: medfile.refinement_name
+source_file: MF2NAME
+
+business_key: [drug_descriptor_id]
+history_type: scd2
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: drug_descriptor_id
+    type: integer
+    cast: int
+  - pos: 2
+    name: drug_name
+    type: varchar(30)
+    cast: str
+  - pos: 3
+    name: route_of_administration_code
+    type: char(2)
+    cast: str
+  - pos: 4
+    name: dosage_form
+    type: char(4)
+    cast: str
+  - pos: 5
+    name: strength
+    type: varchar(15)
+    cast: str
+  - pos: 6
+    name: strength_unit_of_measure
+    type: varchar(10)
+    cast: str
+  - pos: 7
+    name: bioequivalence_code
+    type: char(1)
+    cast: str
+  - pos: 8
+    name: controlled_substance_code
+    type: char(1)
+    cast: str
+  - pos: 9
+    name: efficacy_code
+    type: char(1)
+    cast: str
+  - pos: 10
+    name: legend_indicator_code
+    type: char(1)
+    cast: str
+  - pos: 11
+    name: multi_source_summary_code
+    type: char(1)
+    cast: str
+  - pos: 12
+    name: brand_name_code
+    type: char(1)
+    cast: str
+  - pos: 13
+    name: name_source_code
+    type: char(1)
+    cast: str
+  - pos: 14
+    name: generic_product_identifier
+    type: varchar(14)
+    cast: str
+  - pos: 15
+    name: knowledge_base_drug_code
+    type: bigint
+    cast: bigint
+  - pos: 16
+    name: new_drug_descriptor_id
+    type: integer
+    cast: int
+  - pos: 17
+    name: screenable_flag
+    type: char(1)
+    cast: str
+  - pos: 18
+    name: kdc_flag
+    type: char(1)
+    cast: str
+  - pos: 19
+    name: local_systemic_code
+    type: char(1)
+    cast: str
+  - pos: 20
+    name: maintenance_drug_code
+    type: char(1)
+    cast: str
+  - pos: 21
+    name: form_type_code
+    type: char(1)
+    cast: str
+  - pos: 22
+    name: internal_external_code
+    type: char(1)
+    cast: str
+  - pos: 23
+    name: single_combination_code
+    type: char(1)
+    cast: str
+  - pos: 24
+    name: representative_gpi_flag
+    type: char(1)
+    cast: str
+  - pos: 25
+    name: representative_kdc_flag
+    type: char(1)
+    cast: str
+  - pos: 26
+    name: reserve
+    type: char(6)
+    cast: str
+  - pos: 27
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 28
+    name: last_change_date
+    type: date
+    cast: date_yyyymmdd
+
+lookups: []
+derived: []

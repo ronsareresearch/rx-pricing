@@ -1,0 +1,33 @@
+# NDC Modifier File (MF2NDCM). Manual § NDC Modifier File (O001–O025). Links NDC to Modifier.
+source_table: rxraw.raw_mf2ndcm
+target_table: medfile.refinement_ndcm
+source_file: MF2NDCM
+
+business_key: [ndc_upc_hri, modifier_code]
+history_type: scd2
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: ndc_upc_hri
+    type: varchar(11)
+    cast: str
+  - pos: 2
+    name: modifier_code
+    type: varchar(6)
+    cast: str
+  - pos: 3
+    name: reserve
+    type: varchar(6)
+    cast: str
+  - pos: 4
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 5
+    name: last_change_date
+    type: date
+    cast: date_yyyymmdd
+
+lookups: []
+derived: []

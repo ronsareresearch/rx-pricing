@@ -1,0 +1,41 @@
+# Description File (MF2DESC). Manual § Description File (U001–U270). Unique key: concept_type, country_code, concept_id, type_code.
+source_table: rxraw.raw_mf2desc
+target_table: medfile.refinement_desc
+source_file: MF2DESC
+
+business_key: [concept_type, country_code, concept_id, type_code]
+history_type: scd2
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: concept_type
+    type: integer
+    cast: int
+  - pos: 2
+    name: country_code
+    type: char(2)
+    cast: str
+  - pos: 3
+    name: concept_id
+    type: bigint
+    cast: bigint
+  - pos: 4
+    name: type_code
+    type: integer
+    cast: int
+  - pos: 5
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 6
+    name: description
+    type: varchar(250)
+    cast: str
+  - pos: 7
+    name: reserve
+    type: varchar(67)
+    cast: str
+
+lookups: []
+derived: []

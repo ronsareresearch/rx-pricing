@@ -1,0 +1,45 @@
+# Ingredient Drug File (MF2IDRG). Manual § (2001–2112). Dictionary of generic ingredients.
+source_table: rxraw.raw_mf2idrg
+target_table: medfile.refinement_idrg
+source_file: MF2IDRG
+
+business_key: [ingredient_drug_id]
+history_type: scd2
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: ingredient_drug_id
+    type: bigint
+    cast: bigint
+  - pos: 2
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 3
+    name: cas_number
+    type: varchar(20)
+    cast: str
+  - pos: 4
+    name: knowledge_base_code_7
+    type: integer
+    cast: int
+  - pos: 5
+    name: reserve_1
+    type: char(3)
+    cast: str
+  - pos: 6
+    name: ingredient_drug_name
+    type: varchar(60)
+    cast: str
+  - pos: 7
+    name: generic_id
+    type: varchar(10)
+    cast: str
+  - pos: 8
+    name: reserve_2
+    type: varchar(17)
+    cast: str
+
+lookups: []
+derived: []

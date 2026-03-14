@@ -1,4 +1,6 @@
-"""Generic refine logic: replace, SCD2, append_only. Reads from rxraw.raw_* and writes to medfile."""
+"""Generic refine logic: replace, SCD2, append_only. Reads from rxraw.raw_* and writes to medfile.
+Uses configurable page size, chunked processing, and optional rules cache for throughput and scalability.
+"""
 
 import logging
 from datetime import date
@@ -7,9 +9,16 @@ from uuid import UUID
 
 from psycopg2.extras import execute_values, RealDictCursor
 
+from refine.config import get_refine_page_size
 from refine.rule_engine import apply_column_map, load_rules
 
 logger = logging.getLogger(__name__)
+
+
+def _batch_iter(items: list, size: int):
+    """Yield chunks of items of length size."""
+    for i in range(0, len(items), size):
+        yield items[i : i + size]
 
 
 def _ensure_date(issue_date: date | str | None) -> date | None:
@@ -54,43 +63,57 @@ def refine_replace(
     file_type: str,
     run_id: UUID,
     entity: str,
+    rules: dict | None = None,
 ) -> int:
     """
     Refine MF2VAL: Full (T) = truncate + insert; Incremental (U) = upsert by PK.
-    Returns number of rows written.
+    Processes raw rows in chunks (configurable page size). Returns number of rows written.
     """
-    rules = load_rules(entity)
+    rules = rules or load_rules(entity)
     source_table = rules["source_table"]
     target_table = rules["target_table"]
     columns = rules["columns"]
     target_cols = [c["name"] for c in columns] + ["run_id"]
+    business_key = rules.get("business_key") or []
+    col_names = [c["name"] for c in columns]
+    page_size = get_refine_page_size()
 
     raw_list = _raw_rows(conn, source_table, file_id)
     if not raw_list:
         logger.info("%s: no raw rows for file_id=%s", entity, file_id)
         return 0
 
-    rows = []
-    for raw in raw_list:
-        parsed = apply_column_map(raw, columns)
-        row_tuple = tuple(_serialize_val(parsed.get(n)) for n in [c["name"] for c in columns])
-        rows.append(row_tuple + (str(run_id),))
-
+    cols_str = ", ".join(target_cols)
+    update_cols = [c["name"] for c in columns if c["name"] not in business_key] + ["run_id"]
+    conflict_cols = ", ".join(business_key)
+    updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols)
+    sql = f"""
+        INSERT INTO {target_table} ({cols_str})
+        VALUES %s
+        ON CONFLICT ({conflict_cols})
+        DO UPDATE SET {updates}
+    """
+    total_written = 0
     with conn.cursor() as cur:
         if file_type == "T":
             cur.execute(f"TRUNCATE TABLE {target_table}")
-        cols_str = ", ".join(target_cols)
-        updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in ["value_description", "value_abbreviation", "run_id"])
-        sql = f"""
-            INSERT INTO {target_table} ({cols_str})
-            VALUES %s
-            ON CONFLICT (field_id, field_value, language_cd)
-            DO UPDATE SET {updates}
-        """
-        execute_values(cur, sql, rows, page_size=5000)
-    conn.commit()
-    logger.info("%s: refine_replace %s rows into %s", entity, len(rows), target_table)
-    return len(rows)
+        for chunk in _batch_iter(raw_list, page_size):
+            rows = []
+            for raw in chunk:
+                parsed = apply_column_map(raw, columns)
+                if any(parsed.get(k) is None for k in business_key):
+                    continue
+                row_tuple = tuple(_serialize_val(parsed.get(n)) for n in col_names)
+                rows.append(row_tuple + (str(run_id),))
+            if rows:
+                execute_values(cur, sql, rows, page_size=page_size)
+                total_written += len(rows)
+    if total_written == 0:
+        logger.info("%s: no valid rows (all skipped for null business key) for file_id=%s", entity, file_id)
+    else:
+        conn.commit()
+        logger.info("%s: refine_replace %s rows into %s", entity, total_written, target_table)
+    return total_written
 
 
 def refine_scd2(
@@ -100,18 +123,20 @@ def refine_scd2(
     issue_date: date | str,
     run_id: UUID,
     entity: str,
+    rules: dict | None = None,
 ) -> int:
     """
-    Refine NDC or DRG: Full = insert all with is_current=true; Incremental = apply A/C/D.
+    Refine SCD2 entities: Full (T) = chunked insert; Incremental (U) = per-chunk classify then batch UPDATE/INSERT.
     Returns number of rows inserted.
     """
-    rules = load_rules(entity)
+    rules = rules or load_rules(entity)
     source_table = rules["source_table"]
     target_table = rules["target_table"]
     columns = rules["columns"]
     business_key = rules["business_key"]
     txn_col = rules.get("transaction_cd_column", "transaction_cd")
     source_file = rules.get("source_file", entity.upper())
+    page_size = get_refine_page_size()
 
     issue_d = _ensure_date(issue_date)
     if not issue_d:
@@ -126,70 +151,75 @@ def refine_scd2(
     scd2_cols = ["run_id", "issue_date", "source_file", "is_current", "effective_start_date", "effective_end_date"]
     all_cols = col_names + scd2_cols
     inserted = 0
+    bk_cols = ", ".join(business_key)
 
     with conn.cursor() as cur:
         if file_type == "T":
-            rows = []
-            for raw in raw_list:
-                parsed = apply_column_map(raw, columns)
-                vals = [_serialize_val(parsed.get(n)) for n in col_names]
-                rows.append(
-                    tuple(vals)
-                    + (str(run_id), issue_d.isoformat(), source_file, True, issue_d.isoformat(), None)
-                )
-            if rows:
-                execute_values(
-                    cur,
-                    f"INSERT INTO {target_table} ({', '.join(all_cols)}) VALUES %s",
-                    rows,
-                    page_size=5000,
-                )
-                inserted = len(rows)
+            for chunk in _batch_iter(raw_list, page_size):
+                rows = []
+                for raw in chunk:
+                    parsed = apply_column_map(raw, columns)
+                    vals = [_serialize_val(parsed.get(n)) for n in col_names]
+                    rows.append(
+                        tuple(vals)
+                        + (str(run_id), issue_d.isoformat(), source_file, True, issue_d.isoformat(), None)
+                    )
+                if rows:
+                    execute_values(
+                        cur,
+                        f"INSERT INTO {target_table} ({', '.join(all_cols)}) VALUES %s",
+                        rows,
+                        page_size=page_size,
+                    )
+                    inserted += len(rows)
         else:
-            for raw in raw_list:
-                parsed = apply_column_map(raw, columns)
-                txn = (parsed.get(txn_col) or "").strip().upper()
-                bk_vals = [parsed.get(k) for k in business_key]
-                if txn == "A":
+            for chunk in _batch_iter(raw_list, page_size):
+                adds: list[tuple] = []
+                changes: list[tuple] = []
+                delete_bk_list: list[tuple] = []
+                scd2_suffix = (str(run_id), issue_d.isoformat(), source_file, True, issue_d.isoformat(), None)
+                for raw in chunk:
+                    parsed = apply_column_map(raw, columns)
+                    txn = (parsed.get(txn_col) or "").strip().upper()
+                    bk_vals = tuple(parsed.get(k) for k in business_key)
                     row_tuple = tuple(_serialize_val(parsed.get(n)) for n in col_names)
-                    cur.execute(
-                        f"""
-                        INSERT INTO {target_table} ({', '.join(all_cols)})
-                        VALUES ({', '.join(['%s'] * len(col_names))}, %s, %s, %s, true, %s, NULL)
-                        """,
-                        row_tuple + (str(run_id), issue_d.isoformat(), source_file, issue_d.isoformat()),
+                    if txn == "A":
+                        adds.append(row_tuple + scd2_suffix)
+                    elif txn == "C":
+                        changes.append((bk_vals, row_tuple + scd2_suffix))
+                    elif txn == "D":
+                        delete_bk_list.append(bk_vals)
+                end_date_keys = delete_bk_list + [c[0] for c in changes]
+                if end_date_keys:
+                    for batch in _batch_iter(end_date_keys, page_size):
+                        placeholders = ", ".join(
+                            "(" + ", ".join("%s" for _ in business_key) + ")" for _ in batch
+                        )
+                        flat = [v for tup in batch for v in tup]
+                        cur.execute(
+                            f"""
+                            UPDATE {target_table}
+                            SET is_current = false, effective_end_date = %s
+                            WHERE ({bk_cols}) IN ({placeholders}) AND is_current = true
+                            """,
+                            [issue_d.isoformat()] + flat,
+                        )
+                if adds:
+                    execute_values(
+                        cur,
+                        f"INSERT INTO {target_table} ({', '.join(all_cols)}) VALUES %s",
+                        adds,
+                        page_size=page_size,
                     )
-                    inserted += 1
-                elif txn == "C":
-                    # Close current row(s), then insert new
-                    where_parts = " AND ".join(f"{k} = %s" for k in business_key)
-                    cur.execute(
-                        f"""
-                        UPDATE {target_table}
-                        SET is_current = false, effective_end_date = %s
-                        WHERE {where_parts} AND is_current = true
-                        """,
-                        [issue_d.isoformat()] + bk_vals,
+                    inserted += len(adds)
+                if changes:
+                    execute_values(
+                        cur,
+                        f"INSERT INTO {target_table} ({', '.join(all_cols)}) VALUES %s",
+                        [c[1] for c in changes],
+                        page_size=page_size,
                     )
-                    row_tuple = tuple(_serialize_val(parsed.get(n)) for n in col_names)
-                    cur.execute(
-                        f"""
-                        INSERT INTO {target_table} ({', '.join(all_cols)})
-                        VALUES ({', '.join(['%s'] * len(col_names))}, %s, %s, %s, true, %s, NULL)
-                        """,
-                        row_tuple + (str(run_id), issue_d.isoformat(), source_file, issue_d.isoformat()),
-                    )
-                    inserted += 1
-                elif txn == "D":
-                    where_parts = " AND ".join(f"{k} = %s" for k in business_key)
-                    cur.execute(
-                        f"""
-                        UPDATE {target_table}
-                        SET is_current = false, effective_end_date = %s
-                        WHERE {where_parts} AND is_current = true
-                        """,
-                        [issue_d.isoformat()] + bk_vals,
-                    )
+                    inserted += len(changes)
 
     conn.commit()
     logger.info("%s: refine_scd2 %s rows into %s", entity, inserted, target_table)
@@ -203,18 +233,20 @@ def refine_append(
     issue_date: date | str,
     run_id: UUID,
     entity: str,
+    rules: dict | None = None,
 ) -> int:
     """
-    Refine NDC Price: Full or A/C = insert; D = set is_active=false.
-    Returns number of rows inserted.
+    Refine append_only (e.g. NDC Price, GPR): A/C = batched insert; D = batched is_active=false.
+    Processes raw rows in chunks. Returns number of rows inserted.
     """
-    rules = load_rules(entity)
+    rules = rules or load_rules(entity)
     source_table = rules["source_table"]
     target_table = rules["target_table"]
     columns = rules["columns"]
     business_key = rules["business_key"]
     txn_col = rules.get("transaction_cd_column", "transaction_cd")
     source_file = rules.get("source_file", "MF2PRC")
+    page_size = get_refine_page_size()
 
     issue_d = _ensure_date(issue_date)
     if not issue_d:
@@ -229,29 +261,39 @@ def refine_append(
     extra_cols = ["run_id", "issue_date", "source_file", "is_active"]
     all_cols = col_names + extra_cols
     inserted = 0
+    bk_cols = ", ".join(business_key)
 
     with conn.cursor() as cur:
-        for raw in raw_list:
-            parsed = apply_column_map(raw, columns)
-            txn = (parsed.get(txn_col) or "").strip().upper()
-            if txn == "D":
-                # Deactivate by business key
-                where_parts = " AND ".join(f"{k} = %s" for k in business_key)
-                bk_vals = [_serialize_val(parsed.get(k)) for k in business_key]
-                cur.execute(
-                    f"UPDATE {target_table} SET is_active = false WHERE {where_parts} AND is_active = true",
-                    bk_vals,
+        for chunk in _batch_iter(raw_list, page_size):
+            inserts: list[tuple] = []
+            deactivate_bk_list: list[tuple] = []
+            suffix = (str(run_id), issue_d.isoformat(), source_file)
+            for raw in chunk:
+                parsed = apply_column_map(raw, columns)
+                txn = (parsed.get(txn_col) or "").strip().upper()
+                if txn == "D":
+                    deactivate_bk_list.append(tuple(_serialize_val(parsed.get(k)) for k in business_key))
+                else:
+                    row_tuple = tuple(_serialize_val(parsed.get(n)) for n in col_names)
+                    inserts.append(row_tuple + suffix + (True,))
+            if deactivate_bk_list:
+                for batch in _batch_iter(deactivate_bk_list, page_size):
+                    placeholders = ", ".join(
+                        "(" + ", ".join("%s" for _ in business_key) + ")" for _ in batch
+                    )
+                    flat = [v for tup in batch for v in tup]
+                    cur.execute(
+                        f"UPDATE {target_table} SET is_active = false WHERE ({bk_cols}) IN ({placeholders}) AND is_active = true",
+                        flat,
+                    )
+            if inserts:
+                execute_values(
+                    cur,
+                    f"INSERT INTO {target_table} ({', '.join(all_cols)}) VALUES %s",
+                    inserts,
+                    page_size=page_size,
                 )
-            else:
-                row_tuple = tuple(_serialize_val(parsed.get(n)) for n in col_names)
-                cur.execute(
-                    f"""
-                    INSERT INTO {target_table} ({', '.join(all_cols)})
-                    VALUES ({', '.join(['%s'] * len(col_names))}, %s, %s, %s, true)
-                    """,
-                    row_tuple + (str(run_id), issue_d.isoformat(), source_file),
-                )
-                inserted += 1
+                inserted += len(inserts)
     conn.commit()
     logger.info("%s: refine_append %s rows into %s", entity, inserted, target_table)
     return inserted

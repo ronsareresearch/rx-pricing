@@ -1,3 +1,5 @@
+# Dispensable Drug File (MF2DRG). Field order and codes: med-file-manual.md § Dispensable Drug File (T001–T115).
+# Concept Type 00004 (Dispensable Drug) is the only value used in this file. Country Code 01 = USA.
 source_table: rxraw.raw_mf2drg
 target_table: medfile.refinement_drg
 source_file: MF2DRG

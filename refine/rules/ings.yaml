@@ -1,0 +1,33 @@
+# Ingredient Set ID to Ingredient ID File (MF2INGS). Manual § (Z001–Z023).
+source_table: rxraw.raw_mf2ings
+target_table: medfile.refinement_ings
+source_file: MF2INGS
+
+business_key: [ingredient_set_id, ingredient_id]
+history_type: scd2
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: ingredient_set_id
+    type: bigint
+    cast: bigint
+  - pos: 2
+    name: ingredient_id
+    type: bigint
+    cast: bigint
+  - pos: 3
+    name: active_inactive_flag
+    type: char(1)
+    cast: str
+  - pos: 4
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 5
+    name: reserve
+    type: varchar(10)
+    cast: str
+
+lookups: []
+derived: []

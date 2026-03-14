@@ -1,0 +1,41 @@
+# Drug Concept ID to Ingredient Set ID File (MF2SET). Manual § (Y001–Y040). Concept ID is C/20.
+source_table: rxraw.raw_mf2set
+target_table: medfile.refinement_set
+source_file: MF2SET
+
+business_key: [concept_type, country_code, concept_id]
+history_type: scd2
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: concept_type
+    type: integer
+    cast: int
+  - pos: 2
+    name: country_code
+    type: char(2)
+    cast: str
+  - pos: 3
+    name: concept_id
+    type: varchar(20)
+    cast: str
+  - pos: 4
+    name: ingredient_set_id
+    type: bigint
+    cast: bigint
+  - pos: 5
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 6
+    name: representative_set_indicator
+    type: char(1)
+    cast: str
+  - pos: 7
+    name: reserve
+    type: varchar(25)
+    cast: str
+
+lookups: []
+derived: []
