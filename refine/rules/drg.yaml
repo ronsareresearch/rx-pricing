@@ -1,0 +1,80 @@
+source_table: rxraw.raw_mf2drg
+target_table: medfile.refinement_drg
+source_file: MF2DRG
+
+business_key: [concept_type, country_code, concept_id]
+history_type: scd2
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: concept_type
+    type: integer
+    cast: int
+  - pos: 2
+    name: country_code
+    type: char(2)
+    cast: str
+  - pos: 3
+    name: concept_id
+    type: bigint
+    cast: bigint
+  - pos: 4
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 5
+    name: routed_drug_id
+    type: bigint
+    cast: bigint
+  - pos: 6
+    name: dose_form_id
+    type: integer
+    cast: int
+  - pos: 7
+    name: strength
+    type: varchar(15)
+    cast: str
+  - pos: 8
+    name: strength_uom
+    type: varchar(15)
+    cast: str
+  - pos: 9
+    name: name_source
+    type: smallint
+    cast: int
+  - pos: 10
+    name: device_flag
+    type: smallint
+    cast: int
+  - pos: 11
+    name: status
+    type: smallint
+    cast: int
+  - pos: 12
+    name: link_value
+    type: bigint
+    cast: bigint
+  - pos: 13
+    name: link_date
+    type: date
+    cast: date_yyyymmdd
+  - pos: 14
+    name: routed_drug_form_id
+    type: bigint
+    cast: bigint
+  - pos: 15
+    name: drug_dose_form_id
+    type: bigint
+    cast: bigint
+  - pos: 16
+    name: strength_strength_uom_id
+    type: bigint
+    cast: bigint
+  - pos: 17
+    name: reserve
+    type: varchar(30)
+    cast: str
+
+lookups: []
+derived: []

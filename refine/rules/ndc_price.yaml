@@ -1,0 +1,58 @@
+source_table: rxraw.raw_mf2prc
+target_table: medfile.refinement_ndc_price
+source_file: MF2PRC
+
+business_key: [ndc_upc_hri, price_code, price_effective_date]
+history_type: append_only
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: ndc_upc_hri
+    type: varchar(11)
+    cast: str
+  - pos: 2
+    name: price_code
+    type: char(1)
+    cast: str
+  - pos: 3
+    name: price_effective_date
+    type: date
+    cast: date_yyyymmdd
+  - pos: 4
+    name: unit_price
+    type: decimal(11,6)
+    cast: implied_decimal
+    decimal_places: 6
+  - pos: 5
+    name: unit_price_extended
+    type: decimal(13,5)
+    cast: implied_decimal
+    decimal_places: 5
+  - pos: 6
+    name: package_price
+    type: decimal(10,2)
+    cast: implied_decimal
+    decimal_places: 2
+  - pos: 7
+    name: awp_indicator_code
+    type: char(1)
+    cast: str
+  - pos: 8
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 9
+    name: last_change_date
+    type: date
+    cast: date_yyyymmdd
+
+lookups:
+  - column: price_code
+    field_id: M012
+    description_column: price_code_desc
+  - column: awp_indicator_code
+    field_id: M055
+    description_column: awp_indicator_desc
+
+derived: []

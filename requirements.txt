@@ -1,0 +1,3 @@
+# MED-File v2 ETL pipeline
+python-dotenv>=1.0.0
+psycopg2-binary>=2.9.0

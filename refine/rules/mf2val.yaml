@@ -1,0 +1,31 @@
+source_table: rxraw.raw_mf2val
+target_table: medfile.mf2val
+source_file: MF2VAL
+
+business_key: [field_id, field_value, language_cd]
+history_type: replace
+
+columns:
+  - pos: 1
+    name: field_id
+    type: varchar(4)
+    cast: str
+  - pos: 2
+    name: field_value
+    type: varchar(15)
+    cast: str
+  - pos: 3
+    name: language_cd
+    type: char(2)
+    cast: str
+  - pos: 4
+    name: value_description
+    type: varchar(40)
+    cast: str
+  - pos: 5
+    name: value_abbreviation
+    type: varchar(15)
+    cast: str
+
+lookups: []
+derived: []

@@ -1,0 +1,15 @@
+# Shared formatting rules for views. Referenced by entity YAML via rule name.
+
+formatting_rules:
+  ndc_hyphenate:
+    description: >
+      Insert hyphens into 11-char NDC-UPC-HRI based on ID Number Format Code (H054).
+      Stored value is always 11 chars (NCPDP standard). Per MED-File manual.
+    format_map:
+      "1": "5-4-2"   # originally 4-4-2, stored as 5-4-2 -> display 09999-9999-99
+      "2": "5-4-2"   # originally 5-3-2
+      "3": "5-4-2"   # originally 5-4-1
+      "4": "4-6"     # HRI
+      "5": "5-5"     # UPC
+      "6": "5-4-2"   # standard NDC
+    default: "5-4-2"

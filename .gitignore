@@ -1,0 +1,32 @@
+# Project-specific: exclude from GitHub
+.claude/
+claude.md
+
+# Environment and secrets
+.env
+.env.local
+*.pem
+
+# OS and editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Python (if used)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# MED-File v2 vendor data (do not commit licensed files)
+data/
+
+# Common data/artifact dirs (adjust as needed)
+*.log
+*.log
+dist/
+build/

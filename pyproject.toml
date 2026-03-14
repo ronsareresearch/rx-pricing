@@ -1,0 +1,12 @@
+[project]
+name = "rx-pricing"
+version = "0.1.0"
+description = "ETL pipeline for Wolters Kluwer Medi-Span Electronic Drug File (MED-File) v2)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "psycopg2-binary>=2.9.0",
+    "pyyaml>=6.0",
+]
+

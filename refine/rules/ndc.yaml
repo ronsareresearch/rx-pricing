@@ -1,0 +1,191 @@
+source_table: rxraw.raw_mf2ndc
+target_table: medfile.refinement_ndc
+source_file: MF2NDC
+
+business_key: [ndc_upc_hri]
+history_type: scd2
+transaction_cd_column: transaction_cd
+
+columns:
+  - pos: 1
+    name: ndc_upc_hri
+    type: varchar(11)
+    cast: str
+  - pos: 2
+    name: drug_descriptor_id
+    type: integer
+    cast: int
+  - pos: 3
+    name: tee_code
+    type: char(2)
+    cast: str
+  - pos: 4
+    name: dea_class_code
+    type: char(1)
+    cast: str
+  - pos: 5
+    name: desi_code
+    type: char(1)
+    cast: str
+  - pos: 6
+    name: rx_otc_indicator_code
+    type: char(1)
+    cast: str
+  - pos: 7
+    name: gppc_code
+    type: varchar(8)
+    cast: str
+  - pos: 8
+    name: old_ndc_upc_hri
+    type: varchar(11)
+    cast: str
+  - pos: 9
+    name: new_ndc_upc_hri
+    type: varchar(11)
+    cast: str
+  - pos: 10
+    name: repackage_code
+    type: char(1)
+    cast: str
+  - pos: 11
+    name: id_number_format_code
+    type: char(1)
+    cast: str
+  - pos: 12
+    name: third_party_restriction_code
+    type: char(1)
+    cast: str
+  - pos: 13
+    name: knowledge_base_drug_code
+    type: bigint
+    cast: bigint
+  - pos: 14
+    name: kdc_flag
+    type: char(1)
+    cast: str
+  - pos: 15
+    name: labeler_id
+    type: integer
+    cast: int
+  - pos: 16
+    name: multi_source_code
+    type: char(1)
+    cast: str
+  - pos: 17
+    name: name_type_code
+    type: char(1)
+    cast: str
+  - pos: 18
+    name: item_status_flag
+    type: char(1)
+    cast: str
+  - pos: 19
+    name: innerpack_code
+    type: char(1)
+    cast: str
+  - pos: 20
+    name: clinic_pack_code
+    type: char(1)
+    cast: str
+  - pos: 21
+    name: reserve_1
+    type: char(2)
+    cast: str
+  - pos: 22
+    name: ppg_indicator_code
+    type: char(1)
+    cast: str
+  - pos: 23
+    name: hfpg_indicator_code
+    type: char(1)
+    cast: str
+  - pos: 24
+    name: dispensing_unit_code
+    type: char(1)
+    cast: str
+  - pos: 25
+    name: dollar_rank_code
+    type: char(1)
+    cast: str
+  - pos: 26
+    name: rx_rank_code
+    type: char(1)
+    cast: str
+  - pos: 27
+    name: storage_condition_code
+    type: char(1)
+    cast: str
+  - pos: 28
+    name: limited_distribution_code
+    type: char(2)
+    cast: str
+  - pos: 29
+    name: old_effective_date
+    type: date
+    cast: date_yyyymmdd
+  - pos: 30
+    name: new_effective_date
+    type: date
+    cast: date_yyyymmdd
+  - pos: 31
+    name: next_smaller_ndc_suffix
+    type: char(2)
+    cast: str
+  - pos: 32
+    name: next_larger_ndc_suffix
+    type: char(2)
+    cast: str
+  - pos: 33
+    name: reserve_2
+    type: varchar(13)
+    cast: str
+  - pos: 34
+    name: transaction_cd
+    type: char(1)
+    cast: str
+  - pos: 35
+    name: last_change_date
+    type: date
+    cast: date_yyyymmdd
+
+lookups:
+  - column: item_status_flag
+    field_id: H074
+    description_column: item_status_desc
+  - column: rx_otc_indicator_code
+    field_id: H022
+    description_column: rx_otc_desc
+  - column: dea_class_code
+    field_id: H020
+    description_column: dea_class_desc
+  - column: desi_code
+    field_id: H021
+    description_column: desi_desc
+  - column: repackage_code
+    field_id: H053
+    description_column: repackage_desc
+  - column: multi_source_code
+    field_id: H072
+    description_column: multi_source_desc
+  - column: name_type_code
+    field_id: H073
+    description_column: name_type_desc
+  - column: dispensing_unit_code
+    field_id: H081
+    description_column: dispensing_unit_desc
+  - column: storage_condition_code
+    field_id: H084
+    description_column: storage_condition_desc
+  - column: third_party_restriction_code
+    field_id: H055
+    description_column: third_party_restriction_desc
+  - column: tee_code
+    field_id: H018
+    description_column: tee_desc
+
+derived:
+  - name: ndc_formatted
+    rule: ndc_hyphenate
+    inputs:
+      value: ndc_upc_hri
+      format_code: id_number_format_code
