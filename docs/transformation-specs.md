@@ -1,56 +1,103 @@
-# Transformation specs: casting and translation
+# Transformation Specs
 
-**Role:** Rules for data casting (dates, implied decimals) and MF2VAL join pattern. Used by refinement load logic (Phase 2+: mf2val, ndc, ndc_price, drg). See [med-file-manual.md](med-file-manual.md) and MF2DICT (C044, C045) for field-level definitions.
-
----
-
-## 1. Date casting (YYYYMMDD → DATE)
-
-- **Source:** Numeric fields `N/8` representing YYYYMMDD (Gregorian). Examples: Issue Date (MF2SUM), Effective Date (MF2PRC, MF2NDC), Old/New Effective Date (MF2NDC), Link Date (MF2DRG).
-- **Rule:** Parse the 8-digit integer string as `YYYYMMDD`; convert to native `DATE` in Python and store in Postgres `DATE` columns. Invalid or empty → store NULL.
-- **Example:** `"20220706"` → `date(2022, 7, 6)` → Postgres `DATE '2022-07-06'`.
+**Role:** Current casting and translation rules used during refinement and view generation.
 
 ---
 
-## 2. Implied decimals (C044, C045 and manual Picture clauses)
+## Date Casting
 
-- **Source:** MF2DICT: **Implied Decimal Flag** (C044) = 'Y' and **Decimal Places** (C045) = N; or manual Picture (e.g. 9(5)V9(6) = 5 integer + 6 decimal places). Raw value is an integer string; true value = raw / 10^N.
-- **Rule:** If C044 = 'Y' or Picture contains V, divide the parsed integer by `10 ** decimal_places` before writing to a `DECIMAL` column. If C044 = 'N', use the value as-is.
-- **MF2PRC (NDC Price File)** — [med-file-manual.md](med-file-manual.md) § NDC Price File uses **M**-codes (not L-codes; L-codes are GPPC Price File MF2GPR). Implied decimal from Picture:
-  - **M021 Unit Price:** 9(5)V9(6) → divide by 10^6 → `unit_price DECIMAL(11,6)`.
-  - **M032 Unit Price - Extended:** 9(8)V9(5) → divide by 10^5 → `unit_price_extended DECIMAL(13,5)`.
-  - **M045 Package Price:** 9(8)V9(2) → divide by 10^2 → `package_price DECIMAL(10,2)`.
-- **Price Code (M012)** valid values per manual: **A** = AWP, **D** = DP, **H** = HCFA FFP (CMS FUL), **U** = HCFA FFP unit dose, **W** = WAC.
+MED-File dates are commonly represented as numeric `YYYYMMDD` values.
 
----
+Rule:
 
-## 3. MF2VAL join pattern (translation layer)
+- parse an 8-character numeric value as `YYYYMMDD`
+- store it as PostgreSQL `DATE`
+- treat empty or invalid values as `NULL`
 
-- **Table:** `medfile.mf2val` columns: `field_id`, `field_value`, `language_cd`, `value_description`, `value_abbreviation`.
-- **Join pattern:** For any refinement column that holds a **code** defined in MF2VAL (e.g. Route F037, Item Status H074, RX-OTC H022), join to get the human-readable description:
+Common examples:
 
-  ```sql
-  SELECT r.ndc_upc_hri, r.item_status_flag, v.value_description AS item_status_description
-  FROM medfile.refinement_ndc r
-  LEFT JOIN medfile.mf2val v
-    ON v.field_id = 'H074' AND v.field_value = r.item_status_flag AND v.language_cd = '01'
-  ```
-
-- **Common field_id examples:** F037 (Route), F039 (Dose Form), H022 (RX-OTC), H074 (Item Status), L009 (GPPC Price Code). For NDC Price File use **M012** (Price Code), **M055** (AWP Indicator Code). Use MF2VAL or [med-file-manual.md](med-file-manual.md) to map refinement columns to `field_id`.
-- **Language:** Default `language_cd = '01'` (English). Use the same in joins unless multi-language is required.
+- issue dates from `MF2SUM`
+- old and new effective dates from `MF2NDC`
+- price effective dates from `MF2PRC`
+- link dates from `MF2DRG`
 
 ---
 
-## 4. Refine rules and manual alignment
+## Implied Decimals
 
-Refine rule YAMLs (`refine/rules/*.yaml`) define column position → name and cast per entity. Each file’s header comments cite the manual section and data element code range (e.g. NDC H001–H121, MF2PRC M001–M057, MF2DRG T001–T115, MF2VAL D001–D062). Keep rules in sync with [med-file-manual.md](med-file-manual.md) when adding or changing fields.
+Some MED-File numeric fields are delivered as integer strings with an implied decimal.
 
-## 5. Reference
+Rule:
 
-| Topic | Document / source |
-|-------|-------------------|
-| Field layouts, picture clauses | [med-file-manual.md](med-file-manual.md) |
-| Schema vs manual (100% mapping) | [schema-validation.md](schema-validation.md) |
-| Implied decimal, length, type | MF2DICT (C044, C045, C041, C040) |
-| Code → description | MF2VAL; join on field_id + field_value + language_cd |
-| NDC hyphen display | Manual § ID Number Format Code (H054); `refine/rules/common.yaml` ndc_hyphenate |
+- when MF2DICT indicates an implied decimal, or the manual picture clause uses `V`, divide by `10 ** decimal_places`
+- otherwise store the parsed numeric value as-is
+
+Important `MF2PRC` examples:
+
+| Manual code | Picture | Target column |
+|-------------|---------|---------------|
+| M021 | `9(5)V9(6)` | `unit_price` |
+| M032 | `9(8)V9(5)` | `unit_price_extended` |
+| M045 | `9(8)V9(2)` | `package_price` |
+
+`MF2PRC` price code values in use:
+
+- `A` = AWP
+- `D` = DP
+- `H` = HCFA FFP / CMS FUL
+- `U` = HCFA FFP unit dose
+- `W` = WAC
+
+---
+
+## MF2VAL Translation Pattern
+
+Refined code columns are translated through `medfile.mf2val`.
+
+Core join pattern:
+
+```sql
+SELECT r.ndc_upc_hri, r.item_status_flag, v.value_description AS item_status_description
+FROM medfile.refinement_ndc r
+LEFT JOIN medfile.mf2val v
+  ON v.field_id = 'H074'
+ AND v.field_value = r.item_status_flag
+ AND v.language_cd = '01';
+```
+
+Common field identifiers:
+
+- `F037` route
+- `F039` dose form
+- `H022` RX or OTC indicator
+- `H074` item status
+- `M012` NDC price code
+- `M055` AWP indicator
+
+Default language:
+
+- `language_cd = '01'`
+
+---
+
+## Rule Sources
+
+Transformation behavior is defined in:
+
+- `refine/rules/*.yaml` for source position, typing, and history behavior
+- `refine/rules/common.yaml` for shared formatting rules such as NDC display formatting
+- `view/entity_views.py` for view generation that reuses rule lookups and derived fields
+
+When changing a field definition, keep the rule file, the manual, and the docs aligned.
+
+---
+
+## Reference
+
+| Topic | Source |
+|-------|--------|
+| field layouts and picture clauses | [med-file-manual.md](med-file-manual.md) |
+| project coverage and table inventory | [schema-validation.md](schema-validation.md) |
+| implied decimal metadata | MF2DICT |
+| code-to-description lookups | `medfile.mf2val` |
+| NDC hyphenation behavior | `refine/rules/common.yaml` |

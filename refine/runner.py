@@ -1,4 +1,4 @@
-"""Orchestrate refinement: find unrefined runs, validate, refine each entity in load order. Views are separate (see refine.views)."""
+"""Orchestrate refinement: find unrefined runs, validate, refine each entity in load order. Views are a separate process (python -m view)."""
 
 import logging
 import uuid

@@ -1,215 +1,78 @@
-# PHARMACY CLAIMS INTELLIGENCE PLATFORM (PCIP)
+# PCIP Context
 
-## Freemium Product Proposal
+**Role:** Explain why this repo publishes PCIP-oriented reference views without turning the repo into a claims analytics project.
 
-### I. Executive Summary
+---
 
-The Pharmacy Claims Intelligence Platform (PCIP) is a pharmacy-focused oversight and cost control solution designed for health plans seeking clearer visibility into operational pharmacy spend drivers.
+## What PCIP Means Here
 
-PCIP delivers rapid insight across two high-impact domains:
+PCIP stands for **Pharmacy Claims Intelligence Platform**.
 
-- Generic Conversion & Avoidable Brand Spend Analysis (Data Area 1 for product)
-- Pharmacy Spend Oversight & Payment Consistency Assessment (Data Area 2 for product)
+In this repo, PCIP is a downstream consumer context, not the full product implementation. The project provides drug-reference data that a separate claims system can use for enrichment and analysis.
 
-The platform uses a plan's own claims and enrollment data to identify controllable utilization inefficiencies, structural payment variability, and spend concentration risk.
+For retrospective pharmacy audit use, the intended historical model is monthly: downstream systems should map audit records to the appropriate Medi-Span file month and use the reference state published for that month.
 
-Rather than relying on benchmarking comparisons or complex modeling, PCIP focuses on high-signal, operationally actionable insights that can be implemented quickly through formulary refinement, utilization management, network oversight, and payment governance.
+---
 
-Time to actionable insight: approximately 30–60 days following complete data receipt.
+## What This Repo Provides for PCIP
 
-### II. Generic Conversion & Avoidable Brand Spend Analysis (Data Area 1 Analysis)
+The `view` process creates reference outputs that support claims-side use cases such as:
 
-#### 1. Product Idea Summary
+- generic substitution logic
+- latest AWP lookup
+- maintenance drug identification
+- DEA and specialty-related drug attributes
+- current NDC, GPPC, and GPI relationships
+- future month-keyed drug reference outputs for retrospective audit
 
-This module evaluates prescribing and dispensing behavior to identify controllable brand utilization and substitution opportunities.
+Current PCIP-oriented views:
 
-It highlights:
+- `medfile.v_ndc_pcip_reference`
+- `medfile.v_gpi_equivalents`
+- `medfile.v_drg_maintenance`
 
-- Brand utilization where generic equivalents exist
-- Therapeutic class inefficiency
-- Prescriber-driven variation
-- Concentrated brand cost drivers
+These views are intended to be consumed by another system or exported into another data platform.
 
-The objective is to surface practical savings opportunities that can be addressed through policy, formulary design, and provider engagement.
+---
 
-#### 2. Analytics Performed
+## What Stays Out of Scope
 
-Core analytics include:
+This repo does not implement:
 
-- Overall Generic Fill Rate (GFR) and trend
-- Brand-when-generic-available rate
-- Estimated avoidable spend from substitution
-- Top 10 brand cost drivers with generic alternatives
-- Therapeutic class-level generic efficiency
-- Prescriber-level generic utilization variation
+- claims ingestion
+- claims month-selection rules
+- enrollment ingestion
+- member-level analytics
+- prescriber performance reporting
+- pharmacy network analytics
+- dashboards or customer-facing reporting
 
-All analysis is derived from internal claims data and drug classification logic.
+Those belong in a separate claims and analytics project built on top of the reference data from this repo.
 
-## 3. Data Exchange & Reporting
+---
 
-Required Data from the Health Plan:
+## Reference Semantics Used by Current Views
 
-- NDC-level pharmacy claims
-- Ingredient cost
-- Dispensing fee
-- Quantity dispensed
-- Days supply
-- Plan paid amount
-- Member paid amount
-- Prescriber NPI
-- Line of business segmentation
-- Enrollment file
+The current PCIP-oriented views rely on these MED-File concepts:
 
-Optional (if available):
+- GPI from `medfile.refinement_gppc.generic_product_identifier`
+- current NDC attributes from `medfile.refinement_ndc`
+- current maintenance drug code from `medfile.refinement_name`
+- latest active AWP from `medfile.refinement_ndc_price`
+- substitution filtering from `tee_code`, `multi_source_code`, and non-partial GPI logic
 
-- Drug classification file
-- Pricing reference file (to enhance substitution calculations)
+The repo deliberately stops at this reference layer. It should publish current and month-keyed reference data, but not claims-side audit logic.
 
-Reporting is delivered through a secure dashboard with:
+---
 
-- Executive summary overview
-- Drug-level opportunity drill-down
-- Therapeutic class analysis
-- Prescriber-level insight
-- Exportable operational datasets
+## Downstream Examples
 
-## 4. Intervention Suggestions Based on Output
+A separate claims project could join the reference outputs to pharmacy claims in order to support work such as:
 
-If systemic inefficiency is identified:
+- brand-when-generic-available analysis
+- generic fill rate reporting
+- payment consistency review
+- specialty and maintenance segmentation
+- controlled-substance classification
 
-- Adjust formulary tier placement
-- Strengthen generic substitution policy
-- Modify cost-sharing design
-
- 
-
-If opportunity is drug-specific:
-
-- Target top brand drivers
-- Implement or refine step therapy
-- Tighten prior authorization criteria
-
-If prescriber-driven variation is detected:
-
-- Targeted provider education
-- Academic detailing
-- Specialty-based prescribing review
-- Performance feedback reporting
-
-## 5. Possible ROI Realization
-
-Opportunity areas may include:
-
-- 1–3% improvement in generic utilization
-- Concentrated savings from top brand substitution drivers
-- Reduction in avoidable brand dispensing
-- PMPM stabilization through utilization controls
-
-## III. Pharmacy Spend Oversight & Payment Consistency Assessment (Data Area 2 Analysis)
-
-### 1. Product Idea Summary
-
-This module evaluates the structural integrity of pharmacy payment patterns using internal claims data only.
-
-It identifies internal payment variability, abnormal claim behavior, channel concentration risk, and operational patterns that may signal leakage or oversight gaps.
-
-It functions as a pharmacy spend governance and payment integrity support tool.
-
-### 2. Analytics Performed
-
-**A. High-Cost Claim Outlier Detection**
-
-- Claims above internal statistical thresholds
-- Abnormal cost-per-unit patterns within the same NDC
-- Days supply cost variance review
-
-**B. Ingredient Cost Variability Analysis**
-
-- Distribution of cost-per-unit for identical drugs
-
- 
-
-- Variance and dispersion tracking
-- Identification of inconsistent reimbursement patterns
-
-## C. Pharmacy Spend Concentration & Channel Mix
-
-- Retail vs mail vs specialty mix
-- Top pharmacy spend concentration
-- Channel mix trend monitoring
-
-## D. Reversal & Adjustment Pattern Monitoring
-
-- Frequency of reversed claims
-- Rebill and adjustment trends
-- Payment volatility indicators
-
-## E. High-Cost Member & Therapy Concentration
-
-- Spend concentration by top member cohorts
-- Drug classes driving catastrophic exposure
-- Utilization clustering patterns
-
-## 3. Data Exchange & Reporting
-
-Required Data from the Health Plan:
-
-- NDC-level claims
-- Ingredient cost
-- Dispensing fee
-- Quantity dispensed
-- Plan paid amount
-- Member paid amount
-- Pharmacy identifier
-- Reversal indicator
-- Member ID (de-identified acceptable)
-- Enrollment file
-
-Reporting includes:
-
-- Executive structural spend summary
-- Variability heat maps
-- Outlier claim reports
-- Pharmacy concentration analysis
-- Channel mix monitoring
-- Exportable audit-ready datasets
-
-## 4. Intervention Suggestions Based on Output
-
- 
-
-If cost variability is excessive:
-
-- Review PBM reimbursement configuration
-- Validate payment logic
-- Conduct targeted claim audits
-
-If pharmacy concentration risk is elevated:
-
-- Review network strategy
-- Evaluate specialty channel management
-- Assess contracting alignment
-
-If reversal rates are high:
-
-- Investigate claims processing workflow
-- Review coordination of benefits processes
-- Audit billing practices
-
-If catastrophic concentration is elevated:
-
-- Prioritize case management review
-- Assess specialty drug management programs
-- Review benefit structure impact
-
-## 5. Possible ROI Realization
-
-Potential impact areas include:
-
-- Reduction in operational leakage
-- Improved payment consistency
-- Stabilized PMPM forecasting
-- Reduced high-cost claim volatility
-- Strengthened pharmacy spend governance
-
- 
+Those outcomes are valid downstream uses, but they are not implemented in this repository.

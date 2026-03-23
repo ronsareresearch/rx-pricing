@@ -1,8 +1,10 @@
 """
-Refine ETL: refine raw runs into medfile schema (tables only). Views are separate.
+Refine ETL: refine raw runs into medfile schema (tables only). Views are a separate process.
 Run: uv run python -m refine
 Reset (drop medfile and re-refine all): uv run python -m refine --reset
 Clean failed runs before re-run: uv run python -m refine --clean-failed
+
+To create/refresh views after refinement, run the view process: uv run python -m view
 """
 
 import logging
@@ -25,7 +27,7 @@ def configure_logging() -> None:
 
 def main() -> int:
     import argparse
-    parser = argparse.ArgumentParser(description="Refine ETL: rxraw -> medfile tables (views are separate)")
+    parser = argparse.ArgumentParser(description="Refine ETL: rxraw -> medfile tables (views: run python -m view)")
     parser.add_argument("--reset", action="store_true", help="Drop medfile schema and re-refine all runs")
     parser.add_argument("--clean-failed", action="store_true", help="Delete refinement data for failed runs (then re-run refine)")
     args = parser.parse_args()

@@ -1,43 +1,117 @@
-# Rxraw pipeline
+# rxraw Pipeline
 
-ETL pipeline that loads MED-File v2 data into the **`rxraw`** PostgreSQL schema (raw tables only). Refinement (medfile schema) is a separate pipeline (`refine`); see [schema-validation.md](schema-validation.md) §7 for all schemas.
+`rxraw` is the raw-ingestion stage of the project. It loads MED-File v2 deliveries into schema `rxraw` and does not perform refinement or view creation.
 
-## What it does
+---
 
-1. **Create schema** — Creates schema `rxraw` and all `rxraw.raw_*` tables (same structure as the project-plan raw layer: `file_id`, `file_date`, `source_file`, `line_number`, `volume_number`, `supplement_number`, `pos1`..`pos80`).
-2. **Discover runs** — Finds all runs under the data directory (each run = a directory containing `MF2SUM`). Sorts so the **one full (T)** run is first, then **all incremental (U)** runs by volume.
-3. **Load** — For each run in order, loads every MED-File v2 file present into `rxraw.raw_*`. Each run gets a new `file_id`; `file_date` and volume come from `MF2SUM`.
-
-## Configuration
-
-- **`EXTERNAL_DATABASE_URL`** — PostgreSQL connection string (env or `.env`). Same as the main project.
-- **`DATA_DIR`** — Optional. Default: project `data/` directory. All MED-File v2 files (full and incrementals) live under this directory or in subdirectories; each subdirectory that contains `MF2SUM` is treated as one run.
-
-## Run
-
-From the project root:
+## Command
 
 ```bash
 uv run python -m rxraw
 ```
 
-## Runs and volume numbers (139, 140, …)
+Reset and reload everything in `rxraw`:
 
-- **One “run”** = one delivery = one directory that contains **MF2SUM** (and its data files). When you load that directory into raw, you get **one row** in `rxraw.loaded_runs` with a unique `file_id`, plus `file_date` and **volume_number**.
-- **Volume number** comes from the **MF2SUM** control file (vendor field CVL). The vendor (Wolters Kluwer) assigns it; it is **not** “run #139” but the **volume identifier** for that delivery (e.g. 00139, 00140).
-- **Full (T)** = one delivery with Product File Type **T** in MF2SUM (e.g. July 2022 full). That delivery has one volume number (e.g. **00139**).
-- **Incrementals (U)** = later deliveries with Product File Type **U**. Each has the **next** volume number: 00140, 00141, … through 01/2024.
-- **Refine** processes **unrefined** rows from `loaded_runs` in order (file_date, volume_number): first the full (e.g. 00139), then 00140, 00141, … So you get: **one full load refined first, then each incremental in sequence.** The sequence check (e.g. “expected 140, got 00140”) ensures volume numbers are consecutive; we compare them numerically so 00140 and 140 are treated the same.
+```bash
+uv run python -m rxraw --reset
+```
 
-## Data layout
+---
 
-- **One run per directory with MF2SUM.** Place the full load in one folder and each incremental in its own folder under `data/`, e.g.:
-  - `data/full/MF2SUM`, `data/full/MF2NDC`, ...
-  - `data/inc_001/MF2SUM`, `data/inc_001/MF2NDC`, ...
-  - `data/inc_002/MF2SUM`, ...
-- Or a single directory: put all files in `data/` (one MF2SUM). That counts as one run (full if MF2SUM says T).
-- If no MF2SUM is found anywhere, the pipeline treats `data/` as a single full run with default file_date (today) and volume 0.
+## What `rxraw` Does
 
-## Tables
+1. Creates schema `rxraw` and the raw tables.
+2. Discovers MED-File runs under `DATA_DIR`.
+3. Loads each discovered run into `rxraw.raw_*`.
+4. Records the run in `rxraw.loaded_runs`.
+5. Loads `MF2DICT` once when the file is available.
 
-All tables live in schema **`rxraw`**: `rxraw.raw_mf2dict` (loaded once), plus `rxraw.raw_mf2sum`, `rxraw.raw_mf2val`, `rxraw.raw_mf2ndc`, `rxraw.raw_mf2prc`, … `rxraw.raw_mf2rnm` (**28 tables** total: 1 dict + 27 from `rxraw.schema.RAW_SOURCE_FILES`). Column set is the same for each: `file_id`, `file_date`, `source_file`, `line_number`, `volume_number`, `supplement_number`, `pos1`..`pos80`.
+`rxraw` only writes raw data. Refinement and views are separate steps.
+
+---
+
+## Run Discovery
+
+- A run is a directory that contains `MF2SUM`.
+- `MF2SUM` provides the file type, issue date, volume number, and supplement number.
+- Discovered runs are sorted with one full load (`T`) first and incrementals (`U`) afterward by volume.
+- Directories without a valid `MF2SUM` record are ignored during normal discovery.
+
+Fallback behavior:
+
+- If no valid `MF2SUM` is found anywhere under `DATA_DIR`, `rxraw` creates one synthetic full run from `DATA_DIR` itself.
+- That fallback uses today's date and volume `0`.
+- Treat that path as a convenience for local recovery or ad hoc loading, not the preferred delivery structure.
+
+---
+
+## Configuration
+
+- `EXTERNAL_DATABASE_URL`: required PostgreSQL connection string
+- `DATA_DIR`: optional root for MED-File run directories; defaults to `data/`
+- `RXRAW_INSERT_BATCH_SIZE`: optional bulk insert page size
+
+---
+
+## Delivery Layout
+
+Recommended layout:
+
+```text
+data/
+  full_00139/
+    MF2SUM
+    MF2NDC
+    MF2PRC
+    ...
+  inc_00140/
+    MF2SUM
+    MF2NDC
+    MF2PRC
+    ...
+```
+
+One directory equals one run.
+
+---
+
+## Raw Tables
+
+Schema `rxraw` contains:
+
+- `loaded_runs`
+- `raw_mf2dict`
+- 27 additional `raw_*` tables for MED-File source files
+
+Each raw table uses the same base columns:
+
+| Column | Meaning |
+|--------|---------|
+| `file_id` | UUID for the loaded run |
+| `file_date` | Issue date from `MF2SUM` |
+| `source_file` | MED-File source filename |
+| `line_number` | Source line number |
+| `volume_number` | Volume from `MF2SUM` |
+| `supplement_number` | Supplement from `MF2SUM` |
+| `pos1` .. `pos80` | Raw parsed positions stored as text |
+
+This layer preserves vendor fidelity. It is the replay and traceability source for refinement.
+
+---
+
+## Idempotency and Resume Behavior
+
+- A previously loaded run is skipped by `(file_date, volume_number)`.
+- If a run was only partially loaded, `rxraw` can reuse the existing `file_id` and continue instead of duplicating rows.
+- `MF2DICT` is treated specially and is loaded once per schema.
+
+---
+
+## Relationship to Later Stages
+
+After `rxraw` finishes:
+
+1. Run `uv run python -m refine`
+2. Then run `uv run python -m view`
+
+Those stages read from `rxraw`; `rxraw` does not call them automatically.

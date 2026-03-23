@@ -1,13 +1,12 @@
-"""Generate CREATE OR REPLACE VIEW SQL from YAML lookups and derived. Execute against medfile schema.
+"""Generate CREATE OR REPLACE VIEW SQL for entity-based views (v_ndc, v_ndc_price, v_drg).
 
-Not invoked by the refine pipeline. Use in separate view processing once end-product view
-requirements are defined (see create_views)."""
+Uses refine rule YAML and schema; run via view pipeline (python -m view).
+"""
 
 from refine.rule_engine import load_common_rules, load_rules
 from refine.schema import SCHEMA_NAME
 
-# Map format code pattern to SQL expression (value column, format_code column)
-# PostgreSQL substr is 1-based: substr(s, start, length)
+# Map format code pattern to SQL expression. PostgreSQL substr is 1-based.
 NDC_HYPHENATE_SQL = {
     "5-4-2": "substr(r.ndc_upc_hri, 1, 5) || '-' || substr(r.ndc_upc_hri, 6, 4) || '-' || substr(r.ndc_upc_hri, 10, 2)",
     "4-6": "substr(r.ndc_upc_hri, 1, 4) || '-' || substr(r.ndc_upc_hri, 5, 6)",
@@ -85,10 +84,8 @@ FROM {base_table} r
 """
 
 
-def create_views(conn, entities: list[str] | None = None) -> None:
-    """
-    Create or replace views for the given entities (default: ndc, ndc_price, drg).
-    """
+def create_entity_views(conn, entities: list[str] | None = None) -> None:
+    """Create or replace entity-based views (default: v_ndc, v_ndc_price, v_drg)."""
     if entities is None:
         entities = ["ndc", "ndc_price", "drg"]
     with conn.cursor() as cur:
