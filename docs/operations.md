@@ -36,11 +36,29 @@ If you only want the entity views and want to skip the PCIP-oriented views:
 uv run python -m view --no-pcip
 ```
 
-The default `view` build now includes:
+The default `view` build includes:
 
-- current entity views
-- monthly historical views keyed by Medi-Span file month
+- current entity views (regular views, recreated each run)
+- monthly historical views (materialized views with concurrent refresh and query indexes)
 - PCIP-oriented current-state views unless `--no-pcip` is used
+
+---
+
+## View Refresh Modes
+
+After an incremental refine run where view definitions have not changed, use refresh-only mode for faster execution:
+
+```bash
+uv run python -m view --refresh-only
+```
+
+This only refreshes the materialized monthly views concurrently (UI reads continue unblocked) and skips regular view recreation.
+
+To drop and recreate all materialized views from scratch (e.g. after changing view definitions):
+
+```bash
+uv run python -m view --reset
+```
 
 ---
 
@@ -163,26 +181,36 @@ Investigate when:
 
 ## Current View Outputs
 
-Entity views:
+The view runner maintains a registry of managed views and drops orphaned views (both regular and materialized) on each run.
 
-- `medfile.v_ndc`
-- `medfile.v_ndc_price`
-- `medfile.v_drg`
+Normalized current views:
 
-Monthly historical views:
+- `medfile.v_product_package_current` — canonical NDC reference (one row per NDC)
+- `medfile.v_product_package_price_current` — latest active price per NDC and price type
+- `medfile.v_product_package_modifier_current` — current modifier attachments per NDC
+
+Monthly historical views (materialized, concurrently refreshable):
 
 - `medfile.v_product_package_monthly`
-- `medfile.v_product_package_price_monthly`
+- `medfile.v_product_package_price_monthly` (all price codes)
+- `medfile.v_product_package_price_awp_monthly` (AWP only)
+- `medfile.v_product_package_price_wac_monthly` (WAC only)
+- `medfile.v_product_package_price_dp_monthly` (DP only)
 - `medfile.v_gpi_ndc_equivalent_monthly`
 
-PCIP-oriented views:
+Legacy views (kept for backward compatibility):
 
-- `medfile.v_ndc_pcip_reference`
-- `medfile.v_gpi_equivalents`
-- `medfile.v_drg_maintenance`
+- `medfile.v_ndc` — **deprecated**, use `v_product_package_current`
+- `medfile.v_ndc_price` — **deprecated**, use `v_product_package_price_current`
+- `medfile.v_drg` — active
+- `medfile.v_ndc_pcip_reference` — **deprecated**, use `v_product_package_current` + `v_product_package_price_current`
+- `medfile.v_gpi_equivalents` — active
+- `medfile.v_drg_maintenance` — active
 
 Monthly view rule:
 
 - `reference_month` is derived from the Medi-Span file month in `medfile.refine_runs.file_date`
 - if multiple completed refine runs exist in the same month, the latest completed run is published for that month
 - claims-side selection of `paid_date` versus `processed_date` remains out of scope for this repo
+- materialized views include unique indexes for concurrent refresh plus query indexes on NDC, GPI, month, and drug name for UI query performance
+- the view runner ensures performance indexes on source refinement tables (temporal indexes for LATERAL joins, price ranking indexes, refine_runs status index) before creating or refreshing views

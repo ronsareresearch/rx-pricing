@@ -3,11 +3,13 @@ View pipeline: create/refresh medfile views from refinement. Separate process fr
 
 Run: uv run python -m view
 Skip PCIP views: uv run python -m view --no-pcip
+Refresh only (after incremental refine): uv run python -m view --refresh-only
+Reset materialized views: uv run python -m view --reset
 
 Default build includes:
-- current entity views
-- monthly Medi-Span file-month views
-- optional PCIP current-state reference views
+- current entity views (regular)
+- monthly materialized views (created + indexed, or refreshed concurrently)
+- optional PCIP current-state reference views (regular)
 
 Requires EXTERNAL_DATABASE_URL (same as refine). Run after refinement so tables exist.
 """
@@ -39,6 +41,16 @@ def main() -> int:
         action="store_true",
         help="Skip PCIP reference views (v_ndc_pcip_reference, v_gpi_equivalents, v_drg_maintenance)",
     )
+    parser.add_argument(
+        "--refresh-only",
+        action="store_true",
+        help="Only refresh materialized views (skip entity/PCIP view recreation and orphan cleanup)",
+    )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Drop and recreate all materialized views from scratch",
+    )
     args = parser.parse_args()
 
     configure_logging()
@@ -56,8 +68,21 @@ def main() -> int:
         return 1
 
     try:
-        run_views(conn, include_pcip=not args.no_pcip)
-        log.info("Views created/refreshed (monthly=true PCIP=%s)", not args.no_pcip)
+        if args.reset:
+            from view.monthly_views import drop_materialized_views
+            drop_materialized_views(conn)
+            log.info("Materialized views dropped, recreating")
+
+        run_views(
+            conn,
+            include_pcip=not args.no_pcip,
+            refresh_only=args.refresh_only,
+        )
+        log.info(
+            "Views %s (PCIP=%s)",
+            "refreshed" if args.refresh_only else "created/refreshed",
+            not args.no_pcip,
+        )
         return 0
     finally:
         conn.close()

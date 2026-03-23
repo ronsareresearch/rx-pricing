@@ -17,7 +17,7 @@ The project currently covers all normal MED-File sources in raw ingestion and al
 |-------|----------|
 | Raw | 28 tables: `raw_mf2dict` plus 27 MED-File source tables |
 | Refine | `medfile.mf2val` plus 25 refinement tables |
-| Views | 3 entity views, 3 monthly historical views, and 3 PCIP-oriented reference views |
+| Views | 9 regular views (3 normalized current + 3 legacy entity + 3 legacy PCIP) and 6 materialized monthly views (15 total) |
 
 Load order for refinement:
 
@@ -111,6 +111,14 @@ Standard refine provenance columns are added by the schema generator:
 - plus `is_current` and effective dates for `scd2`
 - plus `is_active` for `append_only`
 
+Indexes per history type:
+
+- `scd2`: business key + `is_current` index, business key + temporal dates index
+- `append_only`: business key index
+- `replace`: primary key on business key
+
+The view runner adds additional performance indexes (defined in `view/indexes.py`) for LATERAL join patterns, price ranking queries, and refine_runs status filtering.
+
 ---
 
 ## Key Entity Mappings
@@ -184,16 +192,33 @@ For full field-by-field interpretation, use the vendor manual together with the 
 
 ## View Inventory
 
-Implemented views in schema `medfile`:
+Implemented views in schema `medfile` (15 managed views):
 
-- `v_ndc`
-- `v_ndc_price`
-- `v_drg`
-- `v_product_package_monthly`
-- `v_product_package_price_monthly`
-- `v_gpi_ndc_equivalent_monthly`
-- `v_ndc_pcip_reference`
-- `v_gpi_equivalents`
-- `v_drg_maintenance`
+Normalized current views (regular):
 
-Entity views are derived from refine rules and MF2VAL lookups. Monthly views are hand-authored SQL builders keyed by `reference_month` derived from `medfile.refine_runs.file_date`. PCIP-oriented views are hand-authored SQL builders over current refinement tables.
+- `v_product_package_current` — one row per `ndc_upc_hri`
+- `v_product_package_price_current` — one row per `(ndc_upc_hri, price_code)`
+- `v_product_package_modifier_current` — one row per `(ndc_upc_hri, modifier_code)`
+
+Legacy entity views (regular, deprecated):
+
+- `v_ndc` — **deprecated**, use `v_product_package_current`
+- `v_ndc_price` — **deprecated**, use `v_product_package_price_current`
+- `v_drg` — active
+
+Monthly historical views (materialized, concurrently refreshable):
+
+- `v_product_package_monthly` — unique on `(reference_month, ndc_upc_hri)`
+- `v_product_package_price_monthly` — unique on `(reference_month, ndc_upc_hri, price_code)`
+- `v_product_package_price_awp_monthly` — unique on `(reference_month, ndc_upc_hri)`
+- `v_product_package_price_wac_monthly` — unique on `(reference_month, ndc_upc_hri)`
+- `v_product_package_price_dp_monthly` — unique on `(reference_month, ndc_upc_hri)`
+- `v_gpi_ndc_equivalent_monthly` — unique on `(reference_month, gpi, ndc_upc_hri)`
+
+Legacy PCIP-oriented views (regular):
+
+- `v_ndc_pcip_reference` — **deprecated**, use `v_product_package_current` + `v_product_package_price_current`
+- `v_gpi_equivalents` — active
+- `v_drg_maintenance` — active
+
+Entity views are derived from refine rules and MF2VAL lookups. Monthly views are materialized for query performance and refreshed with `REFRESH MATERIALIZED VIEW CONCURRENTLY` so reads are never blocked. Each materialized view has a unique index (required for concurrent refresh) plus query indexes on NDC, GPI, month, drug name, and labeler for interactive UI use. Price-type monthly views filter to a single price code for a cleaner 1:1 grain per NDC per month. PCIP-oriented views are hand-authored SQL builders over current refinement tables. The view runner maintains a managed-view registry and drops orphaned views (both regular and materialized) on each run.

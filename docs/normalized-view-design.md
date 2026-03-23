@@ -8,15 +8,31 @@ Claims data remains out of scope for this repository. The historical requirement
 
 Status:
 
-- `medfile.v_product_package_monthly` is implemented
-- `medfile.v_product_package_price_monthly` is implemented
-- `medfile.v_gpi_ndc_equivalent_monthly` is implemented
+- `medfile.v_product_package_current` is implemented
+- `medfile.v_product_package_price_current` is implemented
+- `medfile.v_product_package_modifier_current` is implemented
+- `medfile.v_product_package_monthly` is implemented (materialized)
+- `medfile.v_product_package_price_monthly` is implemented (materialized, all price codes)
+- `medfile.v_product_package_price_awp_monthly` is implemented (materialized, AWP only, price_code = 'A')
+- `medfile.v_product_package_price_wac_monthly` is implemented (materialized, WAC only, price_code = 'W')
+- `medfile.v_product_package_price_dp_monthly` is implemented (materialized, DP only, price_code = 'D')
+- `medfile.v_gpi_ndc_equivalent_monthly` is implemented (materialized)
+
+Deprecated views (kept for backward compatibility):
+
+- `medfile.v_ndc` — superseded by `v_product_package_current`
+- `medfile.v_ndc_price` — superseded by `v_product_package_price_current`
+- `medfile.v_ndc_pcip_reference` — superseded by `v_product_package_current` + `v_product_package_price_current`
+
+All monthly views are materialized for query performance and refreshed concurrently so reads are never blocked. Each has a unique index for concurrent refresh plus query indexes for interactive UI use (NDC, GPI, month, drug name).
 
 These views use `reference_month` derived from `medfile.refine_runs.file_date`.
 
-Current implementation rule:
+Current implementation rules:
 
 - if multiple completed refine runs exist in the same file month, the latest completed run is used as that month's published reference set
+- after incremental refine, use `uv run python -m view --refresh-only` to refresh materialized views without recreating regular views
+- use `uv run python -m view --reset` to drop and recreate materialized views after definition changes
 
 ---
 
@@ -341,13 +357,77 @@ Primary sources:
 
 Purpose:
 
-- canonical monthly price view for audit lookups
+- canonical monthly price view for audit lookups across all price types
 - one month-specific pricing surface per NDC and price code
 
 Reasoning:
 
 - audit pricing should follow the Medi-Span file month
 - the current price view is useful for present-day lookup, but monthly audit workflows need a month-keyed benchmark view
+
+#### `v_product_package_price_awp_monthly`
+
+Proposed grain:
+
+- one row per `(reference_month, ndc_upc_hri)`
+
+Primary sources:
+
+- `medfile.refine_runs`
+- `medfile.refinement_ndc_price` (filtered to `price_code = 'A'`)
+
+Purpose:
+
+- monthly AWP (Average Wholesale Price) view for pharmacy audit
+- the primary pricing benchmark for claims adjudication and reimbursement
+
+Reasoning:
+
+- AWP is by far the most commonly used pricing benchmark in pharmacy
+- a dedicated AWP view provides a clean 1:1 grain per NDC per month without requiring consumers to filter by price code
+- downstream audit systems can join directly on `(reference_month, ndc_upc_hri)` for AWP
+
+#### `v_product_package_price_wac_monthly`
+
+Proposed grain:
+
+- one row per `(reference_month, ndc_upc_hri)`
+
+Primary sources:
+
+- `medfile.refine_runs`
+- `medfile.refinement_ndc_price` (filtered to `price_code = 'W'`)
+
+Purpose:
+
+- monthly WAC (Wholesale Acquisition Cost) view
+- the manufacturer-to-wholesaler price benchmark
+
+Reasoning:
+
+- WAC serves a different business purpose than AWP (acquisition cost vs reimbursement benchmark)
+- separating WAC from AWP prevents consumers from accidentally mixing benchmarks
+
+#### `v_product_package_price_dp_monthly`
+
+Proposed grain:
+
+- one row per `(reference_month, ndc_upc_hri)`
+
+Primary sources:
+
+- `medfile.refine_runs`
+- `medfile.refinement_ndc_price` (filtered to `price_code = 'D'`)
+
+Purpose:
+
+- monthly DP (Direct Price) view
+- the direct manufacturer-to-pharmacy price benchmark
+
+Reasoning:
+
+- DP is a distinct pricing channel and should not be mixed with AWP or WAC in default consumer queries
+- a dedicated view simplifies direct-price analysis workflows
 
 #### `v_product_package_price_history`
 
@@ -737,10 +817,13 @@ These are the views most necessary for the current end product.
 
 1. `v_product_package_current`
 2. `v_product_package_monthly`
-3. `v_product_package_price_monthly`
-4. `v_gpi_ndc_equivalent_monthly`
-5. `v_product_package_price_current`
-6. `v_product_package_modifier_current`
+3. `v_product_package_price_monthly` (all price codes)
+4. `v_product_package_price_awp_monthly` (AWP only)
+5. `v_product_package_price_wac_monthly` (WAC only)
+6. `v_product_package_price_dp_monthly` (DP only)
+7. `v_gpi_ndc_equivalent_monthly`
+8. `v_product_package_price_current`
+9. `v_product_package_modifier_current`
 
 MVP reasoning:
 
@@ -907,14 +990,17 @@ Recommendation:
 When implementation starts, the view build order should be:
 
 1. terminology helper views
-2. `v_product_package_monthly`
-3. `v_product_package_price_monthly`
-4. `v_gpi_ndc_equivalent_monthly`
-5. `v_product_package_current`
-6. `v_product_package_price_current`
-7. `v_product_package_modifier_current`
-8. compatibility review of current PCIP views
-9. later-phase clinical and ingredient families
+2. `v_product_package_monthly` — **implemented** (materialized)
+3. `v_product_package_price_monthly` — **implemented** (materialized, all price codes)
+4. `v_product_package_price_awp_monthly` — **implemented** (materialized, AWP only)
+5. `v_product_package_price_wac_monthly` — **implemented** (materialized, WAC only)
+6. `v_product_package_price_dp_monthly` — **implemented** (materialized, DP only)
+7. `v_gpi_ndc_equivalent_monthly` — **implemented** (materialized)
+8. `v_product_package_current` — **implemented**
+9. `v_product_package_price_current` — **implemented**
+10. `v_product_package_modifier_current` — **implemented**
+11. deprecation of `v_ndc`, `v_ndc_price`, `v_ndc_pcip_reference` — **done** (views kept for backward compatibility)
+12. later-phase clinical and ingredient families
 
 Reasoning:
 

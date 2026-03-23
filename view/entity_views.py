@@ -1,6 +1,13 @@
 """Generate CREATE OR REPLACE VIEW SQL for entity-based views (v_ndc, v_ndc_price, v_drg).
 
 Uses refine rule YAML and schema; run via view pipeline (python -m view).
+
+DEPRECATION NOTICE:
+    v_ndc is superseded by v_product_package_current (see view/current_views.py).
+    v_ndc_price is superseded by v_product_package_price_current.
+    These entity views remain for backward compatibility only. Migrate downstream
+    consumers to the normalized current views and remove these when no longer needed.
+    v_drg has no replacement yet and is not deprecated.
 """
 
 from refine.rule_engine import load_common_rules, load_rules

@@ -2,7 +2,15 @@
 
 Builds v_ndc_pcip_reference, v_gpi_equivalents, and v_drg_maintenance from
 medfile refinement tables. Used by downstream claims/analytics (separate project)
-via Reference API or replicated data. See docs/PCIP-product.md.
+via Reference API or replicated data.
+
+DEPRECATION NOTICE:
+    v_ndc_pcip_reference is superseded by v_product_package_current
+    (see view/current_views.py) plus v_product_package_price_current for AWP.
+    v_gpi_equivalents will be superseded by v_gpi_ndc_equivalent_current
+    (not yet implemented).
+    v_drg_maintenance has no replacement yet and is not deprecated.
+    These views remain for backward compatibility only.
 """
 
 from refine.schema import SCHEMA_NAME

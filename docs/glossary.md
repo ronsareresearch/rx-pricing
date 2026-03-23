@@ -18,6 +18,9 @@ Wolters Kluwer concept for a dispensable drug. In this repo it is primarily carr
 **Data Dictionary (MF2DICT)**  
 Vendor metadata file that describes MED-File elements and formats. Loaded into raw only and used as reference for mapping and validation.
 
+**DP (Direct Price)**  
+Manufacturer-to-pharmacy price carried in `MF2PRC` with `price_code = 'D'`. Exposed in `v_product_package_price_dp_monthly`.
+
 ---
 
 ## E-G
@@ -46,6 +49,9 @@ Update delivery identified by `MF2SUM`. In current code, refinement allows norma
 
 **Item Status Flag**  
 NDC lifecycle status from `MF2NDC`, such as active or inactive.
+
+**Materialized View**  
+A PostgreSQL view whose results are stored on disk and refreshed on demand. Monthly views in this project are materialized with `REFRESH MATERIALIZED VIEW CONCURRENTLY` so reads are never blocked during refresh.
 
 **MED-File v2**  
 The Wolters Kluwer source format this repo ingests and refines.
@@ -79,6 +85,9 @@ Route of administration from MED-File reference sources such as `MF2RTE`, with d
 
 ## S-Z
 
+**Price Code**  
+Single-character code in `MF2PRC` that identifies the price type: `A` = AWP, `D` = DP, `H` = HCFA FFP / CMS FUL, `U` = HCFA FFP unit dose, `W` = WAC.
+
 **SCD2 (Type 2 Slowly Changing Dimension)**  
 History-preserving table pattern that creates new versions instead of overwriting old values.
 
@@ -92,4 +101,7 @@ Vendor transaction code used during incremental refinement logic, typically `A`,
 Vendor run sequence from `MF2SUM`. Stored in both raw and refine run tracking tables.
 
 **Views**  
-Reference outputs created by the separate `view` process from `medfile` refinement tables only.
+Reference outputs created by the separate `view` process from `medfile` refinement tables only. The view runner maintains a managed-view registry and drops orphaned views on each run.
+
+**WAC (Wholesale Acquisition Cost)**  
+Manufacturer-to-wholesaler price carried in `MF2PRC` with `price_code = 'W'`. Exposed in `v_product_package_price_wac_monthly`.

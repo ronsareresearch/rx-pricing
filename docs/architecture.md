@@ -1,6 +1,40 @@
 # Architecture
 
-**Role:** Current-state architecture for the `rx-pricing` MED-File pipeline.
+**Role:** Single source of truth for the `rx-pricing` project: what it is, how it works, and what it produces.
+
+---
+
+## Purpose
+
+`rx-pricing` is a MED-File v2 reference-data pipeline.
+
+It does three things:
+
+1. Loads Wolters Kluwer MED-File deliveries into raw PostgreSQL tables.
+2. Refines those raw records into durable history-aware `medfile` tables.
+3. Publishes reference views that downstream systems can use for drug enrichment.
+
+This repo is not a claims platform. It prepares the drug-reference layer that other systems can consume.
+
+The core historical use case is month-based: downstream consumers should be able to join claims or audit records to the appropriate Medi-Span file month. That month-selection logic belongs outside this repo; this repo publishes the month-keyed reference layer.
+
+---
+
+## Scope
+
+This repo owns:
+
+- MED-File run discovery and raw ingestion
+- MED-File refinement into normalized PostgreSQL tables
+- Reference views built from refinement tables
+- PCIP-oriented drug reference outputs
+
+This repo does not own:
+
+- Claims ingestion or claims month-selection rules
+- Enrollment ingestion
+- PHI or PII workflows
+- Claims fact tables, analytics marts, dashboards, or customer reporting
 
 ---
 
@@ -16,24 +50,26 @@
 
 ---
 
-## Runtime Components
+## Runtime Architecture
 
-| Component | Command | Output |
-|-----------|---------|--------|
-| `rxraw` | `uv run python -m rxraw` | `rxraw.loaded_runs` plus `rxraw.raw_*` tables |
-| `refine` | `uv run python -m refine` | `medfile.refine_runs`, `medfile.mf2val`, and 25 refinement tables |
-| `view` | `uv run python -m view` | `medfile` views for entity reference and PCIP-oriented reference outputs |
+The project has three separate processes:
+
+| Process | Command | Responsibility |
+|---------|---------|----------------|
+| `rxraw` | `uv run python -m rxraw` | Load source files into schema `rxraw` |
+| `refine` | `uv run python -m refine` | Transform `rxraw` data into history-aware tables in schema `medfile` |
+| `view` | `uv run python -m view` | Create or refresh reference views in schema `medfile` |
 
 Data flow:
 
 ```text
-filesystem MED-File runs -> rxraw -> refine -> view
+MED-File delivery -> rxraw -> refine -> view
 ```
 
 Process boundaries:
 
 - `rxraw` discovers runs and writes raw tables only.
-- `refine` reads raw runs and writes tables only.
+- `refine` reads raw runs and writes refinement tables only.
 - `view` reads refined tables and creates views only.
 
 ---
@@ -55,17 +91,21 @@ Process boundaries:
 - 25 entity tables are populated from `refine/rules/*.yaml`.
 - History behavior is rule-driven:
   - `replace` for tables such as `mf2val`
-  - `scd2` for current plus history entities
+  - `scd2` for current plus history entities (indexed on business key + `is_current` and business key + temporal dates)
   - `append_only` for price-style history tables
-- The end-product historical requirement is month-based: consumers need reference data tied to the Medi-Span file month, not claims logic inside this repo.
+- Entity load order is defined in `refine/load_order.py`.
+- Entity mappings and casts are driven by `refine/rules/*.yaml`.
+- Performance indexes on source tables are ensured by the view runner before view creation or refresh.
 
 ### View layer: `medfile`
 
-- Entity views are created from refined tables through `view/entity_views.py`.
-- Monthly normalized views are created from refined tables through `view/monthly_views.py`.
-- PCIP-oriented reference views are created through `view/pcip_views.py`.
+- Entity views and PCIP views are regular PostgreSQL views (always current, recreated on each run).
+- Monthly views are **materialized views** populated with `WITH DATA` and refreshed with `REFRESH MATERIALIZED VIEW CONCURRENTLY` so UI reads are never blocked during refresh.
+- Each materialized view has a unique index (required for concurrent refresh) plus query-oriented indexes for interactive use (NDC lookup, GPI lookup, month filtering, drug name search).
 - The view process can skip PCIP views with `uv run python -m view --no-pcip`.
-- The current implementation now includes month-keyed normalized views for retrospective audit.
+- Use `uv run python -m view --refresh-only` after incremental refine runs to refresh materialized views without recreating regular views.
+- Use `uv run python -m view --reset` to drop and recreate materialized views from scratch.
+- The view runner maintains a registry of managed views and drops orphaned views (both regular and materialized) on each run.
 
 ---
 
@@ -93,7 +133,7 @@ Process boundaries:
   - gap loads: current volume is greater than last volume plus one
   - backfills: current volume is less than or equal to the last refined volume
 
-That behavior is implemented in `refine/validate.py` and should be reflected in operational runbooks.
+That behavior is implemented in `refine/validate.py`.
 
 ### Failure recovery
 
@@ -108,19 +148,81 @@ That behavior is implemented in `refine/validate.py` and should be reflected in 
 | Schema | Objects |
 |--------|---------|
 | `rxraw` | `loaded_runs` and 28 raw tables |
-| `medfile` | `refine_runs`, `mf2val`, 25 refinement tables, and project views |
+| `medfile` | `refine_runs`, `mf2val`, 25 refinement tables, 9 regular views, and 6 materialized views |
 
-Current view set:
+### Normalized current views
 
-- `medfile.v_ndc`
-- `medfile.v_ndc_price`
-- `medfile.v_drg`
-- `medfile.v_product_package_monthly`
-- `medfile.v_product_package_price_monthly`
-- `medfile.v_gpi_ndc_equivalent_monthly`
-- `medfile.v_ndc_pcip_reference`
-- `medfile.v_gpi_equivalents`
-- `medfile.v_drg_maintenance`
+| View | Grain | Purpose |
+|------|-------|---------|
+| `medfile.v_product_package_current` | `ndc_upc_hri` | Canonical current packaged-drug reference with identity, packaging, labeler, classifications, and specialty proxy |
+| `medfile.v_product_package_price_current` | `(ndc_upc_hri, price_code)` | Latest active price per NDC and price type (AWP, WAC, DP, etc.) |
+| `medfile.v_product_package_modifier_current` | `(ndc_upc_hri, modifier_code)` | Current modifier attachments for packaged drug records |
+
+### Monthly historical views (materialized)
+
+All monthly views are materialized and refreshed concurrently for UI-ready query performance.
+
+| View | Unique Key | Purpose |
+|------|-----------|---------|
+| `medfile.v_product_package_monthly` | `(reference_month, ndc_upc_hri)` | Monthly packaged-drug reference keyed by Medi-Span file month |
+| `medfile.v_product_package_price_monthly` | `(reference_month, ndc_upc_hri, price_code)` | Monthly benchmark pricing (all price codes) keyed by Medi-Span file month |
+| `medfile.v_product_package_price_awp_monthly` | `(reference_month, ndc_upc_hri)` | Monthly AWP (Average Wholesale Price) keyed by Medi-Span file month |
+| `medfile.v_product_package_price_wac_monthly` | `(reference_month, ndc_upc_hri)` | Monthly WAC (Wholesale Acquisition Cost) keyed by Medi-Span file month |
+| `medfile.v_product_package_price_dp_monthly` | `(reference_month, ndc_upc_hri)` | Monthly DP (Direct Price) keyed by Medi-Span file month |
+| `medfile.v_gpi_ndc_equivalent_monthly` | `(reference_month, gpi, ndc_upc_hri)` | Monthly generic-equivalence and substitution candidate set |
+
+### Legacy entity views (deprecated)
+
+| View | Status | Replacement |
+|------|--------|-------------|
+| `medfile.v_ndc` | Deprecated | `v_product_package_current` |
+| `medfile.v_ndc_price` | Deprecated | `v_product_package_price_current` |
+| `medfile.v_drg` | Active | No replacement yet |
+
+### Legacy PCIP-oriented views
+
+| View | Status | Replacement |
+|------|--------|-------------|
+| `medfile.v_ndc_pcip_reference` | Deprecated | `v_product_package_current` + `v_product_package_price_current` |
+| `medfile.v_gpi_equivalents` | Active | Future `v_gpi_ndc_equivalent_current` |
+| `medfile.v_drg_maintenance` | Active | No replacement yet |
+
+Deprecated views remain functional for backward compatibility. Migrate downstream consumers to the normalized views and remove when no longer needed.
+
+Monthly view rule:
+
+- `reference_month` is derived from the Medi-Span file month in `medfile.refine_runs.file_date`
+- if multiple completed refine runs exist in the same month, the latest completed run is published for that month
+- claims-side selection of `paid_date` versus `processed_date` remains out of scope for this repo
+
+---
+
+## Key MED-File Semantics In Use
+
+- GPI comes from `medfile.refinement_gppc.generic_product_identifier`.
+- NDC records link to GPI through `gppc_code`.
+- Generic-equivalent logic requires a full 14-character non-partial GPI, `multi_source_code` in `('Y', 'O')`, and `tee_code` that starts with `A` but is not `A1` through `A4`.
+- Maintenance drug logic uses `medfile.refinement_name.maintenance_drug_code`.
+- The current specialty proxy is derived from `dollar_rank_code`, `rx_rank_code`, and `limited_distribution_code`.
+- Current AWP comes from active `medfile.refinement_ndc_price` rows with `price_code = 'A'`.
+- The major historical product requirement is month-based reference matching by Medi-Span file month, not claim-date logic inside this repository.
+
+---
+
+## PCIP Downstream Context
+
+PCIP stands for **Pharmacy Claims Intelligence Platform**. In this repo, PCIP is a downstream consumer context, not the full product implementation. The project provides drug-reference data that a separate claims system can use for enrichment and analysis.
+
+The `view` process creates reference outputs that support claims-side use cases such as:
+
+- generic substitution logic
+- latest AWP lookup
+- maintenance drug identification
+- DEA and specialty-related drug attributes
+- current NDC, GPPC, and GPI relationships
+- month-keyed drug reference outputs for retrospective audit
+
+A separate claims project would join these reference outputs to pharmacy claims for work such as brand-when-generic-available analysis, generic fill rate reporting, payment consistency review, specialty and maintenance segmentation, and controlled-substance classification. Those outcomes are valid downstream uses, but they are not implemented in this repository.
 
 ---
 
@@ -141,24 +243,24 @@ Relevant environment variables:
 
 ---
 
-## Scope Boundary
+## Current Gaps
 
-This architecture intentionally stops at reusable drug reference outputs.
+Not implemented yet:
 
-In scope:
+- MF2ERR correction processing
+- A dedicated reference API or export layer
+- Claims-side enrichment tables and analytics outputs
+- Non-reference reporting products built on plan claims data
 
-- MED-File ingestion
-- MED-File refinement
-- Reference views for downstream consumers
-- Month-keyed historical reference views derived from Medi-Span file months
+---
 
-Out of scope:
+## Project Guardrails
 
-- Claims storage
-- Claims month selection rules
-- Member or enrollment modeling
-- PHI or PII handling
-- Claims-side analytics marts and dashboards
+1. Keep this repo focused on MED-File reference data.
+2. Keep `rxraw`, `refine`, and `view` as separate processes.
+3. Do not add claims storage or claims analytics into this repo.
+4. Prefer explicit, durable table design over ad hoc reporting logic.
+5. Treat `medfile` tables and views as the source of truth for downstream drug-reference semantics.
 
 ---
 
@@ -166,11 +268,10 @@ Out of scope:
 
 | Document | Purpose |
 |----------|---------|
-| [PROJECT-SUMMARY.md](PROJECT-SUMMARY.md) | Compact overview of scope, commands, and current outputs |
-| [rxraw-pipeline.md](rxraw-pipeline.md) | Raw-ingestion behavior and table shape |
-| [schema-validation.md](schema-validation.md) | MED-File coverage and schema inventory |
+| [operations.md](operations.md) | Run commands, recovery steps, and monitoring guidance |
+| [rxraw-pipeline.md](rxraw-pipeline.md) | Raw-ingestion behavior, run discovery, and table shape |
+| [schema-validation.md](schema-validation.md) | MED-File coverage, source file inventory, and entity mappings |
 | [transformation-specs.md](transformation-specs.md) | Cast and translation rules used during refinement |
-| [operations.md](operations.md) | Current run commands and recovery procedures |
 | [glossary.md](glossary.md) | Shared MED-File and project terminology |
-| [PCIP-product.md](PCIP-product.md) | Downstream context for the PCIP-oriented views |
+| [normalized-view-design.md](normalized-view-design.md) | Target architecture for the normalized view layer |
 | [med-file-manual.md](med-file-manual.md) | Vendor source reference |

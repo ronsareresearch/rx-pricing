@@ -46,7 +46,9 @@ CREATE TABLE IF NOT EXISTS {target_table} (
 );
 """
     if history_type == "scd2":
+        tbl = target_table.split('.')[-1]
         bk_index_cols = ", ".join(business_key + ["is_current"])
+        bk_temporal_cols = ", ".join(business_key + ["effective_start_date", "effective_end_date"])
         return f"""
 CREATE TABLE IF NOT EXISTS {target_table} (
     id                      BIGSERIAL PRIMARY KEY,
@@ -59,7 +61,8 @@ CREATE TABLE IF NOT EXISTS {target_table} (
     effective_end_date      DATE,
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS ix_{target_table.split('.')[-1]}_bk ON {target_table} ({bk_index_cols});
+CREATE INDEX IF NOT EXISTS ix_{tbl}_bk ON {target_table} ({bk_index_cols});
+CREATE INDEX IF NOT EXISTS ix_{tbl}_temporal ON {target_table} ({bk_temporal_cols});
 """
     # append_only (e.g. ndc_price, gpr)
     bk_index_cols = ", ".join(business_key)

@@ -3,9 +3,18 @@
 These views publish audit-facing reference data by Medi-Span delivery month.
 They are built from `medfile` refinement tables only and intentionally avoid
 claims-side date logic.
+
+All monthly views are materialized for query performance. They use
+REFRESH MATERIALIZED VIEW CONCURRENTLY so UI reads are never blocked
+during refresh. Each materialized view has a unique index (required for
+concurrent refresh) plus query-oriented indexes for interactive use.
 """
 
+import logging
+
 from refine.schema import SCHEMA_NAME
+
+log = logging.getLogger(__name__)
 
 # PostgreSQL substr is 1-based.
 _NDC_HYPHENATE = {
@@ -42,8 +51,6 @@ def _ndc_formatted_expr(alias: str = "n") -> str:
 
 
 def _monthly_runs_cte() -> str:
-    # One completed run wins per file month. If multiple runs land in a month,
-    # the latest completed run becomes the published monthly reference set.
     return f"""
 WITH ranked_runs AS (
     SELECT
@@ -74,10 +81,13 @@ selected_runs AS (
 """.strip()
 
 
-def get_v_product_package_monthly_sql() -> str:
+# ---------------------------------------------------------------------------
+# Query definitions (SELECT only, no CREATE prefix)
+# ---------------------------------------------------------------------------
+
+def _product_package_monthly_query() -> str:
     ndc_fmt = _ndc_formatted_expr("n")
     return f"""
-CREATE OR REPLACE VIEW {SCHEMA_NAME}.v_product_package_monthly AS
 {_monthly_runs_cte()}
 SELECT
     sr.reference_month,
@@ -171,9 +181,8 @@ LEFT JOIN {SCHEMA_NAME}.mf2val nametype
 """.strip()
 
 
-def get_v_product_package_price_monthly_sql() -> str:
+def _product_package_price_monthly_query() -> str:
     return f"""
-CREATE OR REPLACE VIEW {SCHEMA_NAME}.v_product_package_price_monthly AS
 {_monthly_runs_cte()},
 ranked_price AS (
     SELECT
@@ -226,9 +235,8 @@ WHERE rp.price_rank = 1
 """.strip()
 
 
-def get_v_gpi_ndc_equivalent_monthly_sql() -> str:
+def _gpi_ndc_equivalent_monthly_query() -> str:
     return f"""
-CREATE OR REPLACE VIEW {SCHEMA_NAME}.v_gpi_ndc_equivalent_monthly AS
 {_monthly_runs_cte()}
 SELECT DISTINCT
     sr.reference_month,
@@ -269,10 +277,217 @@ WHERE n.multi_source_code IN ('Y', 'O')
 """.strip()
 
 
+def _price_type_monthly_query(price_code: str) -> str:
+    """SELECT query for a monthly price view filtered to a single price code."""
+    return f"""
+{_monthly_runs_cte()},
+ranked_price AS (
+    SELECT
+        sr.reference_month,
+        sr.reference_run_id,
+        sr.reference_file_date,
+        sr.volume_number,
+        sr.supplement_number,
+        p.run_id AS price_run_id,
+        p.issue_date,
+        p.price_effective_date,
+        p.ndc_upc_hri,
+        p.price_code,
+        p.unit_price,
+        p.unit_price_extended,
+        p.package_price,
+        p.awp_indicator_code,
+        row_number() OVER (
+            PARTITION BY sr.reference_month, p.ndc_upc_hri
+            ORDER BY p.price_effective_date DESC, p.issue_date DESC, p.id DESC
+        ) AS price_rank
+    FROM selected_runs sr
+    JOIN {SCHEMA_NAME}.refinement_ndc_price p
+      ON p.issue_date <= sr.reference_file_date
+     AND p.price_effective_date <= sr.reference_file_date
+     AND p.price_code = '{price_code}'
+)
+SELECT
+    rp.reference_month,
+    rp.reference_run_id,
+    rp.reference_file_date,
+    rp.volume_number,
+    rp.supplement_number,
+    rp.price_run_id,
+    rp.issue_date,
+    rp.ndc_upc_hri,
+    rp.price_code,
+    rp.price_effective_date,
+    rp.unit_price,
+    rp.unit_price_extended,
+    rp.package_price,
+    rp.awp_indicator_code,
+    awp.value_description AS awp_indicator_desc
+FROM ranked_price rp
+LEFT JOIN {SCHEMA_NAME}.mf2val awp
+  ON awp.field_id = 'M055' AND awp.field_value = rp.awp_indicator_code AND awp.language_cd = '01'
+WHERE rp.price_rank = 1
+""".strip()
+
+
+# ---------------------------------------------------------------------------
+# Materialized view registry
+# ---------------------------------------------------------------------------
+
+MATERIALIZED_VIEW_DEFS: list[dict] = [
+    {
+        "name": "v_product_package_monthly",
+        "query_fn": _product_package_monthly_query,
+        "unique_cols": "reference_month, ndc_upc_hri",
+        "indexes": [
+            ("ndc", "ndc_upc_hri"),
+            ("gpi", "gpi"),
+            ("month", "reference_month"),
+            ("name", "drug_name"),
+            ("labeler", "labeler_id"),
+        ],
+    },
+    {
+        "name": "v_product_package_price_monthly",
+        "query_fn": _product_package_price_monthly_query,
+        "unique_cols": "reference_month, ndc_upc_hri, price_code",
+        "indexes": [
+            ("ndc", "ndc_upc_hri"),
+            ("month", "reference_month"),
+            ("ndc_month", "ndc_upc_hri, reference_month"),
+        ],
+    },
+    {
+        "name": "v_product_package_price_awp_monthly",
+        "query_fn": lambda: _price_type_monthly_query("A"),
+        "unique_cols": "reference_month, ndc_upc_hri",
+        "indexes": [
+            ("ndc", "ndc_upc_hri"),
+            ("month", "reference_month"),
+        ],
+    },
+    {
+        "name": "v_product_package_price_wac_monthly",
+        "query_fn": lambda: _price_type_monthly_query("W"),
+        "unique_cols": "reference_month, ndc_upc_hri",
+        "indexes": [
+            ("ndc", "ndc_upc_hri"),
+            ("month", "reference_month"),
+        ],
+    },
+    {
+        "name": "v_product_package_price_dp_monthly",
+        "query_fn": lambda: _price_type_monthly_query("D"),
+        "unique_cols": "reference_month, ndc_upc_hri",
+        "indexes": [
+            ("ndc", "ndc_upc_hri"),
+            ("month", "reference_month"),
+        ],
+    },
+    {
+        "name": "v_gpi_ndc_equivalent_monthly",
+        "query_fn": _gpi_ndc_equivalent_monthly_query,
+        "unique_cols": "reference_month, gpi, ndc_upc_hri",
+        "indexes": [
+            ("gpi", "gpi"),
+            ("ndc", "ndc_upc_hri"),
+            ("month", "reference_month"),
+        ],
+    },
+]
+
+MATERIALIZED_VIEW_NAMES: set[str] = {d["name"] for d in MATERIALIZED_VIEW_DEFS}
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle functions
+# ---------------------------------------------------------------------------
+
+def _matview_exists(cur, name: str) -> bool:
+    cur.execute(
+        "SELECT 1 FROM pg_matviews WHERE schemaname = %s AND matviewname = %s",
+        (SCHEMA_NAME, name),
+    )
+    return cur.fetchone() is not None
+
+
+def _regular_view_exists(cur, name: str) -> bool:
+    cur.execute(
+        "SELECT 1 FROM information_schema.views "
+        "WHERE table_schema = %s AND table_name = %s",
+        (SCHEMA_NAME, name),
+    )
+    return cur.fetchone() is not None
+
+
+def _create_indexes(cur, view_def: dict) -> None:
+    name = view_def["name"]
+    fqn = f"{SCHEMA_NAME}.{name}"
+    cur.execute(
+        f"CREATE UNIQUE INDEX IF NOT EXISTS ux_{name} ON {fqn} ({view_def['unique_cols']})"
+    )
+    for suffix, cols in view_def["indexes"]:
+        cur.execute(
+            f"CREATE INDEX IF NOT EXISTS ix_{name}_{suffix} ON {fqn} ({cols})"
+        )
+
+
 def create_monthly_views(conn) -> None:
-    """Create monthly Medi-Span file-month views."""
+    """Create materialized monthly views (first-time or after reset).
+
+    Idempotent: skips views that already exist as materialized views.
+    Drops any regular VIEW with the same name (transition from older code).
+    """
     with conn.cursor() as cur:
-        cur.execute(get_v_product_package_monthly_sql())
-        cur.execute(get_v_product_package_price_monthly_sql())
-        cur.execute(get_v_gpi_ndc_equivalent_monthly_sql())
+        for vdef in MATERIALIZED_VIEW_DEFS:
+            name = vdef["name"]
+            fqn = f"{SCHEMA_NAME}.{name}"
+
+            if _regular_view_exists(cur, name):
+                cur.execute(f"DROP VIEW IF EXISTS {fqn}")
+                log.info("Dropped regular view %s (replacing with materialized)", fqn)
+
+            if _matview_exists(cur, name):
+                log.info("Materialized view %s already exists, skipping create", fqn)
+                continue
+
+            query = vdef["query_fn"]()
+            cur.execute(f"CREATE MATERIALIZED VIEW {fqn} AS {query} WITH DATA")
+            _create_indexes(cur, vdef)
+            log.info("Created materialized view %s with indexes", fqn)
+
+    conn.commit()
+
+
+def refresh_monthly_views(conn) -> None:
+    """Refresh all materialized monthly views concurrently.
+
+    Uses CONCURRENTLY so existing reads (e.g. UI queries) are not blocked.
+    Requires the unique index created by create_monthly_views.
+    """
+    with conn.cursor() as cur:
+        for vdef in MATERIALIZED_VIEW_DEFS:
+            name = vdef["name"]
+            fqn = f"{SCHEMA_NAME}.{name}"
+
+            if not _matview_exists(cur, name):
+                log.warning(
+                    "Materialized view %s does not exist, run without --refresh-only first",
+                    fqn,
+                )
+                continue
+
+            cur.execute(f"REFRESH MATERIALIZED VIEW CONCURRENTLY {fqn}")
+            log.info("Refreshed materialized view %s", fqn)
+
+    conn.commit()
+
+
+def drop_materialized_views(conn) -> None:
+    """Drop all managed materialized views (used by --reset)."""
+    with conn.cursor() as cur:
+        for vdef in MATERIALIZED_VIEW_DEFS:
+            fqn = f"{SCHEMA_NAME}.{vdef['name']}"
+            cur.execute(f"DROP MATERIALIZED VIEW IF EXISTS {fqn}")
+            log.info("Dropped materialized view %s", fqn)
     conn.commit()
