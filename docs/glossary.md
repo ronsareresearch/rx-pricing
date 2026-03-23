@@ -29,7 +29,7 @@ Manufacturer-to-pharmacy price carried in `MF2PRC` with `price_code = 'D'`. Expo
 Date attached to a vendor change or price record. Used to model historical versions in refinement.
 
 **Error Correct File (MF2ERR)**  
-Incremental-only vendor file for retroactive corrections. The repo currently loads it into raw, but refinement does not process it yet.
+Incremental-only vendor file that flags data entry revisions (clerical corrections, GPI revisions, price retractions). Refined into `medfile.refinement_err` as an append-only audit trail and surfaced via `v_error_corrections`. The corrected data itself is in the corresponding entity files and processed by normal entity refinement.
 
 **Full load (`T`)**  
 A total delivery identified by `MF2SUM`. Used as a baseline run.

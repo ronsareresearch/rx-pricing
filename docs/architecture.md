@@ -88,21 +88,20 @@ Process boundaries:
 
 - `medfile.refine_runs` tracks refinement status per loaded run.
 - `medfile.mf2val` is the translation table.
-- 25 entity tables are populated from `refine/rules/*.yaml`.
+- 26 entity tables are populated from `refine/rules/*.yaml`.
 - History behavior is rule-driven:
   - `replace` for tables such as `mf2val`
   - `scd2` for current plus history entities (indexed on business key + `is_current` and business key + temporal dates)
-  - `append_only` for price-style history tables
+  - `append_only` for price-style history tables and the error correction audit trail
 - Entity load order is defined in `refine/load_order.py`.
 - Entity mappings and casts are driven by `refine/rules/*.yaml`.
 - Performance indexes on source tables are ensured by the view runner before view creation or refresh.
 
 ### View layer: `medfile`
 
-- Entity views and PCIP views are regular PostgreSQL views (always current, recreated on each run).
+- Regular views are organized into five domain families plus an error corrections audit view. All are recreated on each run.
 - Monthly views are **materialized views** populated with `WITH DATA` and refreshed with `REFRESH MATERIALIZED VIEW CONCURRENTLY` so UI reads are never blocked during refresh.
 - Each materialized view has a unique index (required for concurrent refresh) plus query-oriented indexes for interactive use (NDC lookup, GPI lookup, month filtering, drug name search).
-- The view process can skip PCIP views with `uv run python -m view --no-pcip`.
 - Use `uv run python -m view --refresh-only` after incremental refine runs to refresh materialized views without recreating regular views.
 - Use `uv run python -m view --reset` to drop and recreate materialized views from scratch.
 - The view runner maintains a registry of managed views and drops orphaned views (both regular and materialized) on each run.
@@ -148,7 +147,7 @@ That behavior is implemented in `refine/validate.py`.
 | Schema | Objects |
 |--------|---------|
 | `rxraw` | `loaded_runs` and 28 raw tables |
-| `medfile` | `refine_runs`, `mf2val`, 25 refinement tables, 9 regular views, and 6 materialized views |
+| `medfile` | `refine_runs`, `mf2val`, 26 refinement tables, 22 regular views, and 6 materialized views |
 
 ### Normalized current views
 
@@ -157,6 +156,55 @@ That behavior is implemented in `refine/validate.py`.
 | `medfile.v_product_package_current` | `ndc_upc_hri` | Canonical current packaged-drug reference with identity, packaging, labeler, classifications, and specialty proxy |
 | `medfile.v_product_package_price_current` | `(ndc_upc_hri, price_code)` | Latest active price per NDC and price type (AWP, WAC, DP, etc.) |
 | `medfile.v_product_package_modifier_current` | `(ndc_upc_hri, modifier_code)` | Current modifier attachments for packaged drug records |
+
+### Price history view
+
+| View | Grain | Purpose |
+|------|-------|---------|
+| `medfile.v_product_package_price_history` | `(ndc_upc_hri, price_code, price_effective_date)` | Full active price history surface with decoded descriptions |
+
+### GPI and equivalence views
+
+| View | Grain | Purpose |
+|------|-------|---------|
+| `medfile.v_gpi_current` | `gpi` | Current GPI classification with TC-GPI hierarchy name |
+| `medfile.v_gppc_current` | `gppc_code` | Current packaging-level reference between NDC and GPI |
+| `medfile.v_gpi_ndc_equivalent_current` | `(gpi, ndc_upc_hri)` | Current generic-equivalence candidate set with eligibility flags |
+
+### Clinical concept hierarchy views
+
+| View | Grain | Purpose |
+|------|-------|---------|
+| `medfile.v_drug_name_current` | `(concept_type, country_code, concept_id)` | Drug name concept layer with description |
+| `medfile.v_routed_drug_current` | `(concept_type, country_code, concept_id)` | Routed drug with drug name and route enrichment |
+| `medfile.v_drug_dose_form_current` | `(concept_type, country_code, concept_id)` | Drug-dose-form with drug name and form descriptions |
+| `medfile.v_routed_drug_form_current` | `(concept_type, country_code, concept_id)` | Routed-drug-form with routed drug and form descriptions |
+| `medfile.v_dispensable_drug_current` | `(concept_type, country_code, concept_id)` | Dispensable drug (DDID) with hierarchy enrichment |
+| `medfile.v_dispensable_drug_rollup_current` | `(concept_type, country_code, concept_id)` | Flattened hierarchy from drug name through dispensable drug |
+
+### Ingredient composition views
+
+| View | Grain | Purpose |
+|------|-------|---------|
+| `medfile.v_concept_ingredient_set_current` | `(concept_type, country_code, concept_id)` | Concept-to-ingredient-set mapping |
+| `medfile.v_ingredient_set_member_current` | `(ingredient_set_id, ingredient_id)` | Ingredient set membership |
+| `medfile.v_ingredient_current` | `ingredient_id` | Ingredient reference with drug naming and strength |
+| `medfile.v_concept_ingredient_current` | `(concept_type, country_code, concept_id, ingredient_id)` | End-product concept-to-ingredient composition bridge |
+
+### Terminology and alternate-ID views
+
+| View | Grain | Purpose |
+|------|-------|---------|
+| `medfile.v_code_lookup_current` | `(field_id, field_value, language_cd)` | Reusable code-to-description translation layer |
+| `medfile.v_concept_description_current` | `(concept_type, country_code, concept_id, type_code)` | Current concept descriptions |
+| `medfile.v_concept_reference_name_current` | `(concept_type, country_code, concept_id)` | Brand-to-generic concept name mapping |
+| `medfile.v_alternate_id_current` | `(external_drug_id, alternate_drug_id)` | Alternate-ID crosswalk |
+
+### Error correction audit view
+
+| View | Grain | Purpose |
+|------|-------|---------|
+| `medfile.v_error_corrections` | `(key_identifier, unique_key, data_element_code, run_id)` | Audit trail of MF2ERR data entry revision flags with decoded entity types and run metadata |
 
 ### Monthly historical views (materialized)
 
@@ -171,23 +219,7 @@ All monthly views are materialized and refreshed concurrently for UI-ready query
 | `medfile.v_product_package_price_dp_monthly` | `(reference_month, ndc_upc_hri)` | Monthly DP (Direct Price) keyed by Medi-Span file month |
 | `medfile.v_gpi_ndc_equivalent_monthly` | `(reference_month, gpi, ndc_upc_hri)` | Monthly generic-equivalence and substitution candidate set |
 
-### Legacy entity views (deprecated)
-
-| View | Status | Replacement |
-|------|--------|-------------|
-| `medfile.v_ndc` | Deprecated | `v_product_package_current` |
-| `medfile.v_ndc_price` | Deprecated | `v_product_package_price_current` |
-| `medfile.v_drg` | Active | No replacement yet |
-
-### Legacy PCIP-oriented views
-
-| View | Status | Replacement |
-|------|--------|-------------|
-| `medfile.v_ndc_pcip_reference` | Deprecated | `v_product_package_current` + `v_product_package_price_current` |
-| `medfile.v_gpi_equivalents` | Active | Future `v_gpi_ndc_equivalent_current` |
-| `medfile.v_drg_maintenance` | Active | No replacement yet |
-
-Deprecated views remain functional for backward compatibility. Migrate downstream consumers to the normalized views and remove when no longer needed.
+Legacy entity views (`v_ndc`, `v_ndc_price`, `v_drg`) and PCIP views (`v_ndc_pcip_reference`, `v_gpi_equivalents`, `v_drg_maintenance`) have been removed. Their functionality is fully covered by the normalized view families above. The orphan cleanup mechanism will automatically drop them from the database on the next view run.
 
 Monthly view rule:
 
@@ -247,8 +279,8 @@ Relevant environment variables:
 
 Not implemented yet:
 
-- MF2ERR correction processing
 - A dedicated reference API or export layer
+- Monthly historical views for the later-phase families (clinical, ingredient, GPI)
 - Claims-side enrichment tables and analytics outputs
 - Non-reference reporting products built on plan claims data
 

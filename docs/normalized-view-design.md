@@ -8,6 +8,8 @@ Claims data remains out of scope for this repository. The historical requirement
 
 Status:
 
+MVP views (all implemented):
+
 - `medfile.v_product_package_current` is implemented
 - `medfile.v_product_package_price_current` is implemented
 - `medfile.v_product_package_modifier_current` is implemented
@@ -18,11 +20,28 @@ Status:
 - `medfile.v_product_package_price_dp_monthly` is implemented (materialized, DP only, price_code = 'D')
 - `medfile.v_gpi_ndc_equivalent_monthly` is implemented (materialized)
 
-Deprecated views (kept for backward compatibility):
+Later-phase views (all implemented):
 
-- `medfile.v_ndc` — superseded by `v_product_package_current`
-- `medfile.v_ndc_price` — superseded by `v_product_package_price_current`
-- `medfile.v_ndc_pcip_reference` — superseded by `v_product_package_current` + `v_product_package_price_current`
+- `medfile.v_product_package_price_history` is implemented
+- `medfile.v_gpi_current` is implemented
+- `medfile.v_gppc_current` is implemented
+- `medfile.v_gpi_ndc_equivalent_current` is implemented
+- `medfile.v_drug_name_current` is implemented
+- `medfile.v_routed_drug_current` is implemented
+- `medfile.v_drug_dose_form_current` is implemented
+- `medfile.v_routed_drug_form_current` is implemented
+- `medfile.v_dispensable_drug_current` is implemented
+- `medfile.v_dispensable_drug_rollup_current` is implemented
+- `medfile.v_concept_ingredient_set_current` is implemented
+- `medfile.v_ingredient_set_member_current` is implemented
+- `medfile.v_ingredient_current` is implemented
+- `medfile.v_concept_ingredient_current` is implemented
+- `medfile.v_code_lookup_current` is implemented
+- `medfile.v_concept_description_current` is implemented
+- `medfile.v_concept_reference_name_current` is implemented
+- `medfile.v_alternate_id_current` is implemented
+
+Legacy views have been removed from the codebase. The orphan cleanup mechanism drops them from the database automatically on the next view run.
 
 All monthly views are materialized for query performance and refreshed concurrently so reads are never blocked. Each has a unique index for concurrent refresh plus query indexes for interactive UI use (NDC, GPI, month, drug name).
 
@@ -848,30 +867,25 @@ Implementation note:
 
 ### Later-Phase Views
 
-These improve completeness and should follow after the MVP packaged-drug surface is stable.
+All 17 later-phase views are now **implemented**:
 
-1. `v_gpi_current`
-2. `v_gppc_current`
-3. `v_drug_name_current`
-4. `v_routed_drug_current`
-5. `v_drug_dose_form_current`
-6. `v_routed_drug_form_current`
-7. `v_dispensable_drug_current`
-8. `v_dispensable_drug_rollup_current`
-9. `v_concept_ingredient_set_current`
-10. `v_ingredient_set_member_current`
-11. `v_ingredient_current`
-12. `v_concept_ingredient_current`
-13. `v_code_lookup_current`
-14. `v_concept_description_current`
-15. `v_concept_reference_name_current`
-16. `v_alternate_id_current`
-17. `v_product_package_price_history`
-
-Later-phase reasoning:
-
-- these views are important, but they are not required to deliver the first end-product reference layer
-- they depend on settling domain ownership and naming conventions first
+1. `v_gpi_current` — **implemented**
+2. `v_gppc_current` — **implemented**
+3. `v_drug_name_current` — **implemented**
+4. `v_routed_drug_current` — **implemented**
+5. `v_drug_dose_form_current` — **implemented**
+6. `v_routed_drug_form_current` — **implemented**
+7. `v_dispensable_drug_current` — **implemented**
+8. `v_dispensable_drug_rollup_current` — **implemented**
+9. `v_concept_ingredient_set_current` — **implemented**
+10. `v_ingredient_set_member_current` — **implemented**
+11. `v_ingredient_current` — **implemented**
+12. `v_concept_ingredient_current` — **implemented**
+13. `v_code_lookup_current` — **implemented**
+14. `v_concept_description_current` — **implemented**
+15. `v_concept_reference_name_current` — **implemented**
+16. `v_alternate_id_current` — **implemented**
+17. `v_product_package_price_history` — **implemented**
 
 ---
 
@@ -999,8 +1013,8 @@ When implementation starts, the view build order should be:
 8. `v_product_package_current` — **implemented**
 9. `v_product_package_price_current` — **implemented**
 10. `v_product_package_modifier_current` — **implemented**
-11. deprecation of `v_ndc`, `v_ndc_price`, `v_ndc_pcip_reference` — **done** (views kept for backward compatibility)
-12. later-phase clinical and ingredient families
+11. legacy views removed — **done** (orphan cleanup drops them from the database)
+12. later-phase clinical and ingredient families — **implemented** (all 17 views)
 
 Reasoning:
 

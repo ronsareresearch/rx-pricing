@@ -1,0 +1,31 @@
+# Error Correct File (MF2ERR). Field order and codes: med-file-manual.md § Error Correct File (K001–K028).
+# Flags records in other entity files that had data entry revisions (clerical, GPI, pricing retractions).
+# Only present in Incremental Updates — absent from Total Replacements.
+# No transaction_cd column: all records are "add" flags (appended per delivery).
+source_table: rxraw.raw_mf2err
+target_table: medfile.refinement_err
+source_file: MF2ERR
+
+business_key: [key_identifier, unique_key, data_element_code]
+history_type: append_only
+
+columns:
+  - pos: 1
+    name: key_identifier
+    type: char(1)
+    cast: str
+  - pos: 2
+    name: unique_key
+    type: varchar(19)
+    cast: str
+  - pos: 3
+    name: data_element_code
+    type: char(4)
+    cast: str
+  - pos: 4
+    name: data_element_length
+    type: integer
+    cast: int
+
+lookups: []
+derived: []

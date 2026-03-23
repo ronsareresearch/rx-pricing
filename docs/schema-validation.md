@@ -11,24 +11,20 @@ This document answers two questions:
 
 ## Coverage Summary
 
-The project currently covers all normal MED-File sources in raw ingestion and all refinement entities except MF2ERR correction handling.
+The project covers all MED-File sources in raw ingestion and all refinement entities including MF2ERR correction processing.
 
 | Layer | Coverage |
 |-------|----------|
 | Raw | 28 tables: `raw_mf2dict` plus 27 MED-File source tables |
-| Refine | `medfile.mf2val` plus 25 refinement tables |
-| Views | 9 regular views (3 normalized current + 3 legacy entity + 3 legacy PCIP) and 6 materialized monthly views (15 total) |
+| Refine | `medfile.mf2val` plus 26 refinement tables (including `refinement_err` for MF2ERR) |
+| Views | 22 regular views (4 packaged drug + 3 GPI/equivalence + 6 clinical + 4 ingredient + 4 terminology + 1 error corrections) and 6 materialized monthly views (28 total) |
 
 Load order for refinement:
 
 ```text
-mf2val -> lab -> rte -> frm -> stuom -> desc -> name -> tcgpi -> gppc -> ndc -> ndc_price -> gpr -> mod -> ndcm -> drgnm -> rtdrg -> dfdrg -> rtdf -> drg -> set -> ings -> str -> idrg -> sec -> rnm
+Phase 1-3: mf2val -> lab -> rte -> frm -> stuom -> desc -> name -> tcgpi -> gppc -> ndc -> ndc_price -> gpr -> mod -> ndcm -> drgnm -> rtdrg -> dfdrg -> rtdf -> drg -> set -> ings -> str -> idrg -> sec -> rnm
+Phase 4:   err (error correction flags)
 ```
-
-MF2ERR status:
-
-- loaded into raw
-- not yet applied during refinement
 
 ---
 
@@ -44,7 +40,7 @@ MF2ERR status:
 | MF2NDC | NDC | `rxraw.raw_mf2ndc` | `medfile.refinement_ndc` | Implemented |
 | MF2LAB | Labeler | `rxraw.raw_mf2lab` | `medfile.refinement_lab` | Implemented |
 | MF2GPPC | GPPC | `rxraw.raw_mf2gppc` | `medfile.refinement_gppc` | Implemented |
-| MF2ERR | Error Correct | `rxraw.raw_mf2err` | none yet | Raw only |
+| MF2ERR | Error Correct | `rxraw.raw_mf2err` | `medfile.refinement_err` | Implemented |
 | MF2GPR | GPPC Price | `rxraw.raw_mf2gpr` | `medfile.refinement_gpr` | Implemented |
 | MF2PRC | NDC Price | `rxraw.raw_mf2prc` | `medfile.refinement_ndc_price` | Implemented |
 | MF2MOD | Modifier | `rxraw.raw_mf2mod` | `medfile.refinement_mod` | Implemented |
@@ -186,25 +182,64 @@ Representative mappings:
 | T095 | `drug_dose_form_id` |
 | T105 | `strength_strength_uom_id` |
 
+### MF2ERR -> `medfile.refinement_err`
+
+| Manual code | Column |
+|-------------|--------|
+| K001 | `key_identifier` |
+| K002 | `unique_key` |
+| K021 | `data_element_code` |
+| K025 | `data_element_length` |
+
+Key Identifier values: 1 = Drug Descriptor ID, 2 = NDC-UPC-HRI, 3 = NDC-UPC-HRI + Price Type.
+
 For full field-by-field interpretation, use the vendor manual together with the corresponding refine rule file.
 
 ---
 
 ## View Inventory
 
-Implemented views in schema `medfile` (15 managed views):
+Implemented views in schema `medfile` (28 managed views):
 
-Normalized current views (regular):
+Family 1 — Packaged drug reference (regular):
 
 - `v_product_package_current` — one row per `ndc_upc_hri`
 - `v_product_package_price_current` — one row per `(ndc_upc_hri, price_code)`
 - `v_product_package_modifier_current` — one row per `(ndc_upc_hri, modifier_code)`
+- `v_product_package_price_history` — one row per `(ndc_upc_hri, price_code, price_effective_date)`
 
-Legacy entity views (regular, deprecated):
+Family 2 — GPI and equivalence (regular):
 
-- `v_ndc` — **deprecated**, use `v_product_package_current`
-- `v_ndc_price` — **deprecated**, use `v_product_package_price_current`
-- `v_drg` — active
+- `v_gpi_current` — one row per `gpi`
+- `v_gppc_current` — one row per `gppc_code`
+- `v_gpi_ndc_equivalent_current` — one row per `(gpi, ndc_upc_hri)`
+
+Family 3 — Clinical concept hierarchy (regular):
+
+- `v_drug_name_current` — one row per `(concept_type, country_code, concept_id)` for drug names
+- `v_routed_drug_current` — one row per routed drug concept
+- `v_drug_dose_form_current` — one row per drug-dose-form concept
+- `v_routed_drug_form_current` — one row per routed-drug-form concept
+- `v_dispensable_drug_current` — one row per dispensable drug (DDID) concept
+- `v_dispensable_drug_rollup_current` — flattened hierarchy from drug name to dispensable drug
+
+Family 4 — Ingredient composition (regular):
+
+- `v_concept_ingredient_set_current` — one row per `(concept_type, country_code, concept_id)`
+- `v_ingredient_set_member_current` — one row per `(ingredient_set_id, ingredient_id)`
+- `v_ingredient_current` — one row per `ingredient_id`
+- `v_concept_ingredient_current` — one row per `(concept_type, country_code, concept_id, ingredient_id)`
+
+Family 5 — Terminology and alternate IDs (regular):
+
+- `v_code_lookup_current` — one row per `(field_id, field_value, language_cd)`
+- `v_concept_description_current` — one row per `(concept_type, country_code, concept_id, type_code)`
+- `v_concept_reference_name_current` — one row per `(concept_type, country_code, concept_id)`
+- `v_alternate_id_current` — one row per `(external_drug_id, alternate_drug_id)`
+
+Error correction audit view (regular):
+
+- `v_error_corrections` — one row per `(key_identifier, unique_key, data_element_code, run_id)`
 
 Monthly historical views (materialized, concurrently refreshable):
 
@@ -215,10 +250,4 @@ Monthly historical views (materialized, concurrently refreshable):
 - `v_product_package_price_dp_monthly` — unique on `(reference_month, ndc_upc_hri)`
 - `v_gpi_ndc_equivalent_monthly` — unique on `(reference_month, gpi, ndc_upc_hri)`
 
-Legacy PCIP-oriented views (regular):
-
-- `v_ndc_pcip_reference` — **deprecated**, use `v_product_package_current` + `v_product_package_price_current`
-- `v_gpi_equivalents` — active
-- `v_drg_maintenance` — active
-
-Entity views are derived from refine rules and MF2VAL lookups. Monthly views are materialized for query performance and refreshed with `REFRESH MATERIALIZED VIEW CONCURRENTLY` so reads are never blocked. Each materialized view has a unique index (required for concurrent refresh) plus query indexes on NDC, GPI, month, drug name, and labeler for interactive UI use. Price-type monthly views filter to a single price code for a cleaner 1:1 grain per NDC per month. PCIP-oriented views are hand-authored SQL builders over current refinement tables. The view runner maintains a managed-view registry and drops orphaned views (both regular and materialized) on each run.
+Views are organized by domain family. Monthly views are materialized for query performance and refreshed with `REFRESH MATERIALIZED VIEW CONCURRENTLY` so reads are never blocked. Each materialized view has a unique index plus query indexes on NDC, GPI, month, drug name, and labeler for interactive UI use. Clinical hierarchy views use LATERAL subqueries to pick one description per concept from the Description file. The view runner maintains a managed-view registry and drops orphaned views (both regular and materialized) on each run.

@@ -30,17 +30,11 @@ uv run python -m refine
 uv run python -m view
 ```
 
-If you only want the entity views and want to skip the PCIP-oriented views:
-
-```bash
-uv run python -m view --no-pcip
-```
-
 The default `view` build includes:
 
-- current entity views (regular views, recreated each run)
+- normalized current views across five domain families (regular, recreated each run)
+- error correction audit view (regular)
 - monthly historical views (materialized views with concurrent refresh and query indexes)
-- PCIP-oriented current-state views unless `--no-pcip` is used
 
 ---
 
@@ -148,15 +142,15 @@ Do not re-ingest the same delivery into raw as a new run.
 
 ---
 
-## MF2ERR Status
+## MF2ERR Correction Processing
 
-`MF2ERR` is loaded into raw, but correction processing is not implemented in refinement yet.
+`MF2ERR` (Error Correct File) is fully integrated into the refinement pipeline.
 
-Current guidance:
-
-- keep the raw file with the rest of the delivery
-- do not document the run as fully correction-aware
-- treat downstream history as incomplete until MF2ERR handling is implemented
+- MF2ERR records are refined into `medfile.refinement_err` as `append_only` history (all correction flags are preserved across deliveries).
+- MF2ERR is processed as Phase 4 in the load order — after all entity processing.
+- MF2ERR is only present in incremental updates (`U`); total replacements (`T`) have no MF2ERR records.
+- The `v_error_corrections` view provides a human-readable audit trail with decoded entity types (`Drug Descriptor ID`, `NDC-UPC-HRI`, `NDC-UPC-HRI + Price Type`) and run metadata.
+- MF2ERR flags which records had data entry revisions; the corrected data itself is in the corresponding entity files (MF2NDC, MF2NAME, MF2PRC, etc.) and is already processed by the normal entity refinement.
 
 ---
 
@@ -183,11 +177,45 @@ Investigate when:
 
 The view runner maintains a registry of managed views and drops orphaned views (both regular and materialized) on each run.
 
-Normalized current views:
+Packaged drug reference views (Family 1):
 
 - `medfile.v_product_package_current` — canonical NDC reference (one row per NDC)
 - `medfile.v_product_package_price_current` — latest active price per NDC and price type
 - `medfile.v_product_package_modifier_current` — current modifier attachments per NDC
+- `medfile.v_product_package_price_history` — full active price history
+
+GPI and equivalence views (Family 2):
+
+- `medfile.v_gpi_current` — GPI classification with TC-GPI hierarchy
+- `medfile.v_gppc_current` — packaging-level reference
+- `medfile.v_gpi_ndc_equivalent_current` — generic-equivalence candidates
+
+Clinical hierarchy views (Family 3):
+
+- `medfile.v_drug_name_current` — drug name concept layer
+- `medfile.v_routed_drug_current` — routed drug with route enrichment
+- `medfile.v_drug_dose_form_current` — drug-dose-form with form descriptions
+- `medfile.v_routed_drug_form_current` — routed-drug-form
+- `medfile.v_dispensable_drug_current` — dispensable drug (DDID)
+- `medfile.v_dispensable_drug_rollup_current` — flattened hierarchy rollup
+
+Ingredient composition views (Family 4):
+
+- `medfile.v_concept_ingredient_set_current` — concept-to-ingredient-set mapping
+- `medfile.v_ingredient_set_member_current` — ingredient set membership
+- `medfile.v_ingredient_current` — ingredient reference with strength
+- `medfile.v_concept_ingredient_current` — concept-to-ingredient bridge
+
+Terminology and alternate-ID views (Family 5):
+
+- `medfile.v_code_lookup_current` — code-to-description translation
+- `medfile.v_concept_description_current` — concept descriptions
+- `medfile.v_concept_reference_name_current` — brand-to-generic name mapping
+- `medfile.v_alternate_id_current` — alternate-ID crosswalk
+
+Error correction audit view:
+
+- `medfile.v_error_corrections` — audit trail of MF2ERR data entry revision flags
 
 Monthly historical views (materialized, concurrently refreshable):
 
@@ -197,15 +225,6 @@ Monthly historical views (materialized, concurrently refreshable):
 - `medfile.v_product_package_price_wac_monthly` (WAC only)
 - `medfile.v_product_package_price_dp_monthly` (DP only)
 - `medfile.v_gpi_ndc_equivalent_monthly`
-
-Legacy views (kept for backward compatibility):
-
-- `medfile.v_ndc` — **deprecated**, use `v_product_package_current`
-- `medfile.v_ndc_price` — **deprecated**, use `v_product_package_price_current`
-- `medfile.v_drg` — active
-- `medfile.v_ndc_pcip_reference` — **deprecated**, use `v_product_package_current` + `v_product_package_price_current`
-- `medfile.v_gpi_equivalents` — active
-- `medfile.v_drg_maintenance` — active
 
 Monthly view rule:
 

@@ -162,10 +162,41 @@ WHERE ndcm.is_current = true
 """.strip()
 
 
+def get_v_product_package_price_history_sql() -> str:
+    """SQL for v_product_package_price_history.
+
+    Grain: one row per (ndc_upc_hri, price_code, price_effective_date).
+    Explicit price-history surface over the append-only price table.
+    Exposes all active price records with decoded descriptions.
+    """
+    return f"""
+CREATE OR REPLACE VIEW {SCHEMA_NAME}.v_product_package_price_history AS
+SELECT
+    p.ndc_upc_hri,
+    p.price_code,
+    pricecode.value_description AS price_code_desc,
+    p.price_effective_date,
+    p.unit_price,
+    p.unit_price_extended,
+    p.package_price,
+    p.awp_indicator_code,
+    awp.value_description AS awp_indicator_desc,
+    p.issue_date,
+    p.last_change_date
+FROM {SCHEMA_NAME}.refinement_ndc_price p
+LEFT JOIN {SCHEMA_NAME}.mf2val pricecode
+    ON pricecode.field_id = 'M012' AND pricecode.field_value = p.price_code AND pricecode.language_cd = '01'
+LEFT JOIN {SCHEMA_NAME}.mf2val awp
+    ON awp.field_id = 'M055' AND awp.field_value = p.awp_indicator_code AND awp.language_cd = '01'
+WHERE p.is_active = true
+""".strip()
+
+
 def create_current_views(conn) -> None:
     """Create or replace all normalized current-state views."""
     with conn.cursor() as cur:
         cur.execute(get_v_product_package_current_sql())
         cur.execute(get_v_product_package_price_current_sql())
         cur.execute(get_v_product_package_modifier_current_sql())
+        cur.execute(get_v_product_package_price_history_sql())
     conn.commit()
