@@ -4,8 +4,7 @@ Separate process from raw (rxraw) and refine. Run after refinement:
 
     uv run python -m view
 
-Options:
-    --no-pcip   Skip PCIP reference views (v_ndc_pcip_reference, v_gpi_equivalents, v_drg_maintenance).
+CLI options are defined in ``view.__main__`` (e.g. ``--refresh-only``, ``--reset``).
 """
 
 from view.runner import run_views

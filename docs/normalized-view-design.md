@@ -57,16 +57,17 @@ Current implementation rules:
 
 ## Why A New View Design Is Needed
 
-The current `view` layer proves the pipeline works, but it is not yet a complete normalized consumer-facing surface.
+The `view` layer is now a **normalized consumer-facing surface** (see Status above). The following **historical context** explains why the design moved away from earlier passthrough views.
 
-Current state:
+**Superseded approach:**
 
-- [view/entity_views.py](../view/entity_views.py) generates `v_ndc`, `v_ndc_price`, and `v_drg` directly from refine rules.
-- Those views select `r.*`, which makes them broad passthroughs over refinement tables rather than stable downstream contracts.
-- [view/pcip_views.py](../view/pcip_views.py) adds curated views for `v_ndc_pcip_reference`, `v_gpi_equivalents`, and `v_drg_maintenance`.
-- Those curated views are useful, but they only cover a narrow slice of the eventual product surface.
+- Older pipelines exposed generated entity views (`v_ndc`, `v_ndc_price`, `v_drg`) and dedicated consumer views (`v_ndc_pcip_reference`, `v_gpi_equivalents`, `v_drg_maintenance`). Those views are **removed**; see [architecture.md](architecture.md).
 
-The end product needs a view layer with explicit semantics:
+**Current implementation:**
+
+- [view/current_views.py](../view/current_views.py), [view/monthly_views.py](../view/monthly_views.py), [view/gpi_views.py](../view/gpi_views.py), [view/clinical_views.py](../view/clinical_views.py), [view/ingredient_views.py](../view/ingredient_views.py), [view/terminology_views.py](../view/terminology_views.py), and [view/err_views.py](../view/err_views.py) define the managed view set.
+
+The design goals for that surface remain:
 
 - one view should represent one business grain
 - current-state views should be clearly separated from monthly historical views
@@ -104,7 +105,7 @@ Reasoning:
 
 ### 3. The view layer is NDC-heavy but not domain-complete
 
-The current curated views focus on NDC reference and generic-equivalence logic. That matches the initial PCIP direction, but the refined schema already contains richer domains:
+The earliest curated views focused on NDC reference and generic-equivalence logic. That matched an initial pharmacy-analytics consumer direction, but the refined schema already contains richer domains:
 
 - packaged drug identity and pricing
 - therapeutic hierarchy

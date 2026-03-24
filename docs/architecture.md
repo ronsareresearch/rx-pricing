@@ -27,7 +27,7 @@ This repo owns:
 - MED-File run discovery and raw ingestion
 - MED-File refinement into normalized PostgreSQL tables
 - Reference views built from refinement tables
-- PCIP-oriented drug reference outputs
+- Drug reference views intended for pharmacy-claims analytics and other downstream consumers
 
 This repo does not own:
 
@@ -219,7 +219,7 @@ All monthly views are materialized and refreshed concurrently for UI-ready query
 | `medfile.v_product_package_price_dp_monthly` | `(reference_month, ndc_upc_hri)` | Monthly DP (Direct Price) keyed by Medi-Span file month |
 | `medfile.v_gpi_ndc_equivalent_monthly` | `(reference_month, gpi, ndc_upc_hri)` | Monthly generic-equivalence and substitution candidate set |
 
-Legacy entity views (`v_ndc`, `v_ndc_price`, `v_drg`) and PCIP views (`v_ndc_pcip_reference`, `v_gpi_equivalents`, `v_drg_maintenance`) have been removed. Their functionality is fully covered by the normalized view families above. The orphan cleanup mechanism will automatically drop them from the database on the next view run.
+Legacy entity views (`v_ndc`, `v_ndc_price`, `v_drg`) and legacy consumer-specific views (`v_ndc_pcip_reference`, `v_gpi_equivalents`, `v_drg_maintenance`) have been removed. Their functionality is fully covered by the normalized view families above. The orphan cleanup mechanism will automatically drop them from the database on the next view run.
 
 Monthly view rule:
 
@@ -241,11 +241,11 @@ Monthly view rule:
 
 ---
 
-## PCIP Downstream Context
+## Downstream consumers
 
-PCIP stands for **Pharmacy Claims Intelligence Platform**. In this repo, PCIP is a downstream consumer context, not the full product implementation. The project provides drug-reference data that a separate claims system can use for enrichment and analysis.
+This repository delivers **Medi-Span–aligned drug reference** only. **Pharmacy claims ingestion, analytics products, customer UI, and audit workflows** live in **separate systems** (and typically separate repositories). Product requirements and roadmaps for those systems are **not** maintained here.
 
-The `view` process creates reference outputs that support claims-side use cases such as:
+The `view` process creates reference outputs that downstream systems can use for:
 
 - generic substitution logic
 - latest AWP lookup
@@ -254,7 +254,9 @@ The `view` process creates reference outputs that support claims-side use cases 
 - current NDC, GPPC, and GPI relationships
 - month-keyed drug reference outputs for retrospective audit
 
-A separate claims project would join these reference outputs to pharmacy claims for work such as brand-when-generic-available analysis, generic fill rate reporting, payment consistency review, specialty and maintenance segmentation, and controlled-substance classification. Those outcomes are valid downstream uses, but they are not implemented in this repository.
+A separate claims or analytics application joins these reference outputs to pharmacy claims (e.g. brand-when-generic analysis, generic fill rate, payment consistency, specialty segmentation, controlled-substance classification). Those outcomes are valid downstream uses; **they are not implemented in this repository.**
+
+**Integration contract:** Consumers should document view names, grains, and `reference_month` semantics against [schema-validation.md](schema-validation.md), [operations.md](operations.md), and [reference-api-spec.md](reference-api-spec.md) (when using an HTTP API).
 
 ---
 
@@ -279,7 +281,7 @@ Relevant environment variables:
 
 Not implemented yet:
 
-- A dedicated reference API or export layer
+- A dedicated reference API or export layer — **specification:** [reference-api-spec.md](reference-api-spec.md) and [openapi/medfile-reference-v1.yaml](openapi/medfile-reference-v1.yaml)
 - Monthly historical views for the later-phase families (clinical, ingredient, GPI)
 - Claims-side enrichment tables and analytics outputs
 - Non-reference reporting products built on plan claims data
@@ -300,6 +302,8 @@ Not implemented yet:
 
 | Document | Purpose |
 |----------|---------|
+| [deployment.md](deployment.md) | Production deployment patterns for the batch pipeline, scheduling, env vars, downstream integration (thin API vs DB) |
+| [reference-api-spec.md](reference-api-spec.md) | Full HTTP spec for the thin MED-File reference API (not implemented in-repo); [OpenAPI YAML](openapi/medfile-reference-v1.yaml) |
 | [operations.md](operations.md) | Run commands, recovery steps, and monitoring guidance |
 | [rxraw-pipeline.md](rxraw-pipeline.md) | Raw-ingestion behavior, run discovery, and table shape |
 | [schema-validation.md](schema-validation.md) | MED-File coverage, source file inventory, and entity mappings |

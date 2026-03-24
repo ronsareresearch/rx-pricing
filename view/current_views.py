@@ -2,7 +2,7 @@
 
 These views provide the canonical current reference surface for the end product.
 They replace the consumer role of the legacy entity views (v_ndc, v_ndc_price)
-and the PCIP reference view (v_ndc_pcip_reference).
+and the former dedicated consumer reference view (v_ndc_pcip_reference).
 
 All current views filter with is_current = true (SCD2) or is_active = true
 (append_only) and expose stable semantic columns rather than SELECT *.

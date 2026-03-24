@@ -1,0 +1,555 @@
+openapi: 3.0.3
+info:
+  title: MED-File Reference API
+  description: |
+    Thin read-only HTTP layer over PostgreSQL schema `medfile` (normalized views).
+    **Not implemented** in the rx-pricing repo; this file is the contract for implementers.
+    Human-readable narrative: [reference-api-spec.md](../reference-api-spec.md)
+  version: 1.0.0
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.example.com
+    description: Production (replace host)
+
+tags:
+  - name: health
+  - name: reference
+  - name: current
+  - name: monthly
+
+paths:
+  /v1/health/live:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      operationId: healthLive
+      security: []
+      responses:
+        "200":
+          description: Process is running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiveStatus"
+
+  /v1/health/ready:
+    get:
+      tags: [health]
+      summary: Readiness (database reachable)
+      operationId: healthReady
+      responses:
+        "200":
+          description: Ready to serve traffic
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyStatus"
+        "503":
+          description: Not ready
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /v1/reference/status:
+    get:
+      tags: [reference]
+      summary: Baseline freshness and available reference months
+      operationId: referenceStatus
+      responses:
+        "200":
+          description: Current reference metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferenceStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/current/package/{ndc_upc_hri}:
+    get:
+      tags: [current]
+      summary: Current packaged drug row for NDC
+      operationId: getCurrentPackage
+      parameters:
+        - $ref: "#/components/parameters/NdcPath"
+      responses:
+        "200":
+          description: Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductPackageCurrent"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/current/prices/{ndc_upc_hri}:
+    get:
+      tags: [current]
+      summary: Current price rows for NDC
+      operationId: getCurrentPrices
+      parameters:
+        - $ref: "#/components/parameters/NdcPath"
+        - name: price_code
+          in: query
+          schema:
+            type: string
+          description: Optional filter (e.g. A for AWP family)
+      responses:
+        "200":
+          description: Price list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductPriceCurrentListResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/current/package/batch:
+    post:
+      tags: [current]
+      summary: Batch lookup current package by NDC list
+      operationId: postCurrentPackageBatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NdcBatchRequest"
+      responses:
+        "200":
+          description: Per-NDC result or error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PackageBatchResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: Validation error (e.g. too many NDCs)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /v1/monthly/{reference_month}/package/{ndc_upc_hri}:
+    get:
+      tags: [monthly]
+      summary: Monthly package row for NDC and reference month
+      operationId: getMonthlyPackage
+      parameters:
+        - $ref: "#/components/parameters/ReferenceMonthPath"
+        - $ref: "#/components/parameters/NdcPath"
+      responses:
+        "200":
+          description: Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductPackageMonthly"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/monthly/{reference_month}/package/batch:
+    post:
+      tags: [monthly]
+      summary: Batch monthly package lookup
+      operationId: postMonthlyPackageBatch
+      parameters:
+        - $ref: "#/components/parameters/ReferenceMonthPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NdcBatchRequest"
+      responses:
+        "200":
+          description: Per-NDC result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonthlyPackageBatchResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: OAuth2 access token or API key per deployment policy
+
+  parameters:
+    NdcPath:
+      name: ndc_upc_hri
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[0-9]{11}$"
+      description: 11-digit NDC-UPC-HRI, digits only
+    ReferenceMonthPath:
+      name: reference_month
+      in: path
+      required: true
+      schema:
+        type: string
+        format: date
+        example: "2025-03-01"
+      description: First day of Medi-Span reference month (YYYY-MM-01)
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: Resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+  schemas:
+    Problem:
+      type: object
+      required: [title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+    LiveStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+
+    ReadyStatus:
+      type: object
+      required: [status, database]
+      properties:
+        status:
+          type: string
+          enum: [ready]
+        database:
+          type: string
+          enum: [ok]
+
+    ReferenceStatus:
+      type: object
+      required: [api_version, medfile_schema]
+      properties:
+        api_version:
+          type: string
+          example: "1"
+        medfile_schema:
+          type: string
+          example: medfile
+        latest_completed_refine:
+          $ref: "#/components/schemas/RefineRunSummary"
+        reference_months_available:
+          type: object
+          properties:
+            min:
+              type: string
+              format: date
+            max:
+              type: string
+              format: date
+            count:
+              type: integer
+        view_build:
+          type: object
+          properties:
+            git_sha:
+              type: string
+            spec_revision:
+              type: string
+
+    RefineRunSummary:
+      type: object
+      properties:
+        run_id:
+          type: integer
+          format: int64
+        file_date:
+          type: string
+          format: date
+        volume_number:
+          type: integer
+        supplement_number:
+          type: integer
+        completed_at:
+          type: string
+          format: date-time
+
+    NdcBatchRequest:
+      type: object
+      required: [ndc_upc_hri]
+      properties:
+        ndc_upc_hri:
+          type: array
+          maxItems: 500
+          items:
+            type: string
+            pattern: "^[0-9]{11}$"
+
+    ProductPackageCurrent:
+      type: object
+      required: [ndc_upc_hri, ndc_formatted, specialty_proxy]
+      properties:
+        ndc_upc_hri:
+          type: string
+        ndc_formatted:
+          type: string
+        drug_descriptor_id:
+          type: string
+          nullable: true
+        drug_name:
+          type: string
+          nullable: true
+        maintenance_drug_code:
+          type: string
+          nullable: true
+        name_gpi:
+          type: string
+          nullable: true
+        gppc_code:
+          type: string
+          nullable: true
+        gpi:
+          type: string
+          nullable: true
+        package_size:
+          type: string
+          nullable: true
+        package_size_uom:
+          type: string
+          nullable: true
+        package_quantity:
+          type: string
+          nullable: true
+        package_description_code:
+          type: string
+          nullable: true
+        labeler_id:
+          type: string
+          nullable: true
+        manufacturer_name:
+          type: string
+          nullable: true
+        manufacturer_abbrev:
+          type: string
+          nullable: true
+        tee_code:
+          type: string
+          nullable: true
+        tee_desc:
+          type: string
+          nullable: true
+        dea_class_code:
+          type: string
+          nullable: true
+        dea_class_desc:
+          type: string
+          nullable: true
+        rx_otc_indicator_code:
+          type: string
+          nullable: true
+        rx_otc_desc:
+          type: string
+          nullable: true
+        multi_source_code:
+          type: string
+          nullable: true
+        multi_source_desc:
+          type: string
+          nullable: true
+        item_status_flag:
+          type: string
+          nullable: true
+        item_status_desc:
+          type: string
+          nullable: true
+        name_type_code:
+          type: string
+          nullable: true
+        name_type_desc:
+          type: string
+          nullable: true
+        dollar_rank_code:
+          type: string
+          nullable: true
+        rx_rank_code:
+          type: string
+          nullable: true
+        limited_distribution_code:
+          type: string
+          nullable: true
+        specialty_proxy:
+          type: boolean
+
+    ProductPriceCurrent:
+      type: object
+      properties:
+        ndc_upc_hri:
+          type: string
+        price_code:
+          type: string
+        price_code_desc:
+          type: string
+          nullable: true
+        price_effective_date:
+          type: string
+          format: date
+          nullable: true
+        unit_price:
+          type: string
+          nullable: true
+        unit_price_extended:
+          type: string
+          nullable: true
+        package_price:
+          type: string
+          nullable: true
+        awp_indicator_code:
+          type: string
+          nullable: true
+
+    ProductPriceCurrentListResponse:
+      type: object
+      required: [ndc_upc_hri, prices]
+      properties:
+        ndc_upc_hri:
+          type: string
+        prices:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductPriceCurrent"
+
+    BatchItemError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: NOT_FOUND
+        message:
+          type: string
+
+    PackageBatchResult:
+      type: object
+      required: [ndc_upc_hri]
+      properties:
+        ndc_upc_hri:
+          type: string
+        data:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ProductPackageCurrent"
+        error:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/BatchItemError"
+
+    PackageBatchResponse:
+      type: object
+      required: [results, meta]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/PackageBatchResult"
+        meta:
+          type: object
+          required: [requested, found]
+          properties:
+            requested:
+              type: integer
+            found:
+              type: integer
+
+    ProductPackageMonthly:
+      type: object
+      description: |
+        Projection of medfile.v_product_package_monthly; extend with all view columns in implementation.
+      required: [reference_month, ndc_upc_hri]
+      properties:
+        reference_month:
+          type: string
+          format: date
+        ndc_upc_hri:
+          type: string
+      additionalProperties: true
+
+    MonthlyPackageBatchResult:
+      type: object
+      required: [ndc_upc_hri]
+      properties:
+        ndc_upc_hri:
+          type: string
+        data:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ProductPackageMonthly"
+        error:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/BatchItemError"
+
+    MonthlyPackageBatchResponse:
+      type: object
+      required: [results, meta]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/MonthlyPackageBatchResult"
+        meta:
+          type: object
+          required: [requested, found]
+          properties:
+            requested:
+              type: integer
+            found:
+              type: integer
+
+security:
+  - bearerAuth: []
