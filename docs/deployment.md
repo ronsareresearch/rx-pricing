@@ -1,6 +1,6 @@
 # Deployment — `rx-pricing` (MED-File baseline pipeline)
 
-**Role:** How to **deploy and operate** this repository in production-like environments. For day-to-day commands and recovery, see [operations.md](operations.md).
+**Role:** How to **deploy and operate** this repository in production-like environments. For **blank-state** setup and verification, see [runbook.md](runbook.md). For day-to-day commands and recovery, see [operations.md](operations.md).
 
 **Scope:** The **batch ETL** (`rxraw` → `refine` → `view`) and the **PostgreSQL** database that holds `rxraw` and `medfile`. This repo does **not** ship a customer-facing **UI** or claims analytics; those belong to **downstream applications** (separate repos). A **thin read API** in front of `medfile` (optional, often a separate small service) is a common integration pattern when consumers should not use direct database credentials—see **§5**.
 

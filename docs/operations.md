@@ -2,6 +2,8 @@
 
 **Role:** Run commands, recovery steps, and practical operating guidance for the current pipeline.
 
+**Greenfield / blank state:** See [runbook.md](runbook.md) for prerequisites, first-time setup, verification, and scheduling context.
+
 ---
 
 ## Configuration

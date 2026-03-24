@@ -302,8 +302,10 @@ Not implemented yet:
 
 | Document | Purpose |
 |----------|---------|
+| [runbook.md](runbook.md) | Greenfield-to-production runbook: prerequisites, first run, steady state, recovery, scheduling |
 | [deployment.md](deployment.md) | Production deployment patterns for the batch pipeline, scheduling, env vars, downstream integration (thin API vs DB) |
 | [reference-api-spec.md](reference-api-spec.md) | Full HTTP spec for the thin MED-File reference API (not implemented in-repo); [OpenAPI YAML](openapi/medfile-reference-v1.yaml) |
+| [recommendations-proposed-medfile-views.md](recommendations-proposed-medfile-views.md) | PCIP-aligned proposed `medfile` views (monthly GPI/clinical/ingredient, priorities, phasing) for stakeholder review |
 | [operations.md](operations.md) | Run commands, recovery steps, and monitoring guidance |
 | [rxraw-pipeline.md](rxraw-pipeline.md) | Raw-ingestion behavior, run discovery, and table shape |
 | [schema-validation.md](schema-validation.md) | MED-File coverage, source file inventory, and entity mappings |
